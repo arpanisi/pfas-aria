@@ -32,7 +32,7 @@ class Embedder:
         if not texts:
             raise ValueError("Cannot embed empty list")
 
-        embeddings: np.ndarray = self._model.encode(
+        embeddings = self._model.encode(
             texts,
             batch_size=32,
             show_progress_bar=len(texts) > 50,

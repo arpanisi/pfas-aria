@@ -98,6 +98,13 @@ class LoggingConfig(BaseModel):
     retention: str = "30 days"
 
 
+class HypothesisConfig(BaseModel):
+    max_variables_per_model: int = 8
+    max_interaction_terms: int = 3
+    allow_polynomial_terms: bool = True
+    allow_log_transforms: bool = True
+
+
 class PipelinePhases(BaseModel):
     ingestion: bool = True
     rag_build: bool = True
@@ -128,6 +135,7 @@ class Settings(BaseModel):
     # Agents
     supervisor: SupervisorConfig = Field(default_factory=SupervisorConfig)
     convergence: ConvergenceConfig = Field(default_factory=ConvergenceConfig)
+    hypothesis: HypothesisConfig = Field(default_factory=HypothesisConfig)
 
     # Models
     llm: LLMConfig = Field(default_factory=LLMConfig)
