@@ -1,8 +1,8 @@
 # PFAS-ARIA
 ### Autonomous Research Intelligence Agent for PFAS Degradation Analysis
 
-[![Tests](https://github.com/yourusername/pfas-aria/actions/workflows/test.yml/badge.svg)](https://github.com/yourusername/pfas-aria/actions)
-[![Lint](https://github.com/yourusername/pfas-aria/actions/workflows/lint.yml/badge.svg)](https://github.com/yourusername/pfas-aria/actions)
+[![Tests](https://github.com/arpanisi/pfas-aria/actions/workflows/test.yml/badge.svg)](https://github.com/arpanisi/pfas-aria/actions)
+[![Lint](https://github.com/arpanisi/pfas-aria/actions/workflows/lint.yml/badge.svg)](https://github.com/arpanisi/pfas-aria/actions)
 
 ![PFAS-ARIA System Overview](docs/aria.png)
 
