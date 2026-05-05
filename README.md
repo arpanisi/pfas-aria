@@ -4,7 +4,7 @@
 [![Tests](https://github.com/yourusername/pfas-aria/actions/workflows/test.yml/badge.svg)](https://github.com/yourusername/pfas-aria/actions)
 [![Lint](https://github.com/yourusername/pfas-aria/actions/workflows/lint.yml/badge.svg)](https://github.com/yourusername/pfas-aria/actions)
 
-
+![PFAS-ARIA System Overview](docs/aria.png)
 
 PFAS-ARIA is an autonomous multi-agent system that ingests experimental PFAS degradation data and a corpus of scientific papers, then independently discovers data regimes, generates statistical hypotheses, runs and validates models, and grounds findings in open literature — stopping only when results converge with published science.
 

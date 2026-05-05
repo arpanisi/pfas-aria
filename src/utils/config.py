@@ -98,6 +98,11 @@ class LoggingConfig(BaseModel):
     retention: str = "30 days"
 
 
+class GroundingConfig(BaseModel):
+    arxiv_max_results: int = 10
+    min_similarity_score: float = 0.60
+
+
 class HypothesisConfig(BaseModel):
     max_variables_per_model: int = 8
     max_interaction_terms: int = 3
@@ -136,6 +141,7 @@ class Settings(BaseModel):
     supervisor: SupervisorConfig = Field(default_factory=SupervisorConfig)
     convergence: ConvergenceConfig = Field(default_factory=ConvergenceConfig)
     hypothesis: HypothesisConfig = Field(default_factory=HypothesisConfig)
+    grounding: GroundingConfig = Field(default_factory=GroundingConfig)
 
     # Models
     llm: LLMConfig = Field(default_factory=LLMConfig)
