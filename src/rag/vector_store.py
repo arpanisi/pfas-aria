@@ -24,6 +24,7 @@ logger = get_logger(__name__)
 @dataclass
 class RetrievedChunk:
     """A retrieved document chunk with its similarity score."""
+
     doc_id: str
     source_file: str
     title: str
@@ -128,15 +129,17 @@ class VectorStore:
                 continue
 
             meta = results["metadatas"][0][i]
-            chunks.append(RetrievedChunk(
-                doc_id=doc_id,
-                source_file=meta.get("source_file", "unknown"),
-                title=meta.get("title", "unknown"),
-                text=results["documents"][0][i],
-                chunk_index=meta.get("chunk_index", 0),
-                similarity_score=round(similarity, 4),
-                metadata=meta,
-            ))
+            chunks.append(
+                RetrievedChunk(
+                    doc_id=doc_id,
+                    source_file=meta.get("source_file", "unknown"),
+                    title=meta.get("title", "unknown"),
+                    text=results["documents"][0][i],
+                    chunk_index=meta.get("chunk_index", 0),
+                    similarity_score=round(similarity, 4),
+                    metadata=meta,
+                )
+            )
 
         return sorted(chunks, key=lambda c: c.similarity_score, reverse=True)
 

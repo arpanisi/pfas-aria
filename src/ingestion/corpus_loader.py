@@ -22,29 +22,33 @@ logger = get_logger(__name__)
 
 # ── Output schema ─────────────────────────────────────────────────────────────
 
+
 @dataclass
 class Document:
     """A single text chunk from a paper, with full provenance."""
-    doc_id: str               # Unique hash of source_file + chunk_index
-    source_file: str          # Original PDF filename
-    title: str                # Extracted or inferred title
-    chunk_index: int          # Position within the source paper
-    text: str                 # Chunk text content
-    n_tokens: int             # Approximate token count
+
+    doc_id: str  # Unique hash of source_file + chunk_index
+    source_file: str  # Original PDF filename
+    title: str  # Extracted or inferred title
+    chunk_index: int  # Position within the source paper
+    text: str  # Chunk text content
+    n_tokens: int  # Approximate token count
     metadata: dict = field(default_factory=dict)
 
 
 @dataclass
 class CorpusBundle:
     """All documents parsed from the corpus directory."""
+
     documents: list[Document]
     n_papers: int
     n_chunks: int
     paper_titles: list[str]
-    failed_files: list[str]   # PDFs that could not be parsed
+    failed_files: list[str]  # PDFs that could not be parsed
 
 
 # ── Loader ────────────────────────────────────────────────────────────────────
+
 
 class CorpusLoader:
     """
@@ -55,7 +59,7 @@ class CorpusLoader:
     def __init__(self) -> None:
         self.settings = get_settings()
         self.cfg = self.settings.corpus
-        self.chunk_size = self.cfg.chunk_size        # tokens (approx)
+        self.chunk_size = self.cfg.chunk_size  # tokens (approx)
         self.chunk_overlap = self.cfg.chunk_overlap
 
     def load(self) -> CorpusBundle:
@@ -64,8 +68,7 @@ class CorpusLoader:
 
         if not pdf_files:
             raise CorpusEmptyError(
-                f"No PDF files found in: {corpus_dir}\n"
-                f"Add your papers and re-run."
+                f"No PDF files found in: {corpus_dir}\nAdd your papers and re-run."
             )
 
         logger.info(f"Found {len(pdf_files)} PDFs in corpus")
@@ -127,24 +130,24 @@ class CorpusLoader:
 
         documents = []
         for i, chunk_text in enumerate(chunks):
-            doc_id = hashlib.md5(
-                f"{path.name}_{i}".encode()
-            ).hexdigest()[:12]
+            doc_id = hashlib.md5(f"{path.name}_{i}".encode()).hexdigest()[:12]
 
-            documents.append(Document(
-                doc_id=doc_id,
-                source_file=path.name,
-                title=title,
-                chunk_index=i,
-                text=chunk_text,
-                n_tokens=self._count_tokens(chunk_text),
-                metadata={
-                    "source_file": path.name,
-                    "title": title,
-                    "chunk_index": i,
-                    "total_chunks": len(chunks),
-                }
-            ))
+            documents.append(
+                Document(
+                    doc_id=doc_id,
+                    source_file=path.name,
+                    title=title,
+                    chunk_index=i,
+                    text=chunk_text,
+                    n_tokens=self._count_tokens(chunk_text),
+                    metadata={
+                        "source_file": path.name,
+                        "title": title,
+                        "chunk_index": i,
+                        "total_chunks": len(chunks),
+                    },
+                )
+            )
 
         return documents, title
 

@@ -13,6 +13,7 @@ from src.ingestion.data_loader import ColumnProfile, DataBundle  # noqa: E402
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
+
 def _make_profile(name: str, is_numeric: bool = True) -> ColumnProfile:
     return ColumnProfile(
         name=name,
@@ -37,24 +38,28 @@ def sample_bundle() -> DataBundle:
     n = 60
 
     # Two clear groups
-    group1 = pd.DataFrame({
-        "experiment_id": range(1, 31),
-        "time_hours": np.linspace(0, 5, 30),
-        "degradation_rate": np.random.normal(0.3, 0.05, 30),
-        "uv_intensity": np.random.normal(10, 1, 30),
-        "ph": np.random.normal(7.0, 0.2, 30),
-        "temperature_c": np.random.normal(20, 1, 30),
-        "catalyst": ["TiO2"] * 30,
-    })
-    group2 = pd.DataFrame({
-        "experiment_id": range(31, 61),
-        "time_hours": np.linspace(5, 10, 30),
-        "degradation_rate": np.random.normal(0.7, 0.05, 30),
-        "uv_intensity": np.random.normal(30, 1, 30),
-        "ph": np.random.normal(8.0, 0.2, 30),
-        "temperature_c": np.random.normal(30, 1, 30),
-        "catalyst": ["ZnO"] * 30,
-    })
+    group1 = pd.DataFrame(
+        {
+            "experiment_id": range(1, 31),
+            "time_hours": np.linspace(0, 5, 30),
+            "degradation_rate": np.random.normal(0.3, 0.05, 30),
+            "uv_intensity": np.random.normal(10, 1, 30),
+            "ph": np.random.normal(7.0, 0.2, 30),
+            "temperature_c": np.random.normal(20, 1, 30),
+            "catalyst": ["TiO2"] * 30,
+        }
+    )
+    group2 = pd.DataFrame(
+        {
+            "experiment_id": range(31, 61),
+            "time_hours": np.linspace(5, 10, 30),
+            "degradation_rate": np.random.normal(0.7, 0.05, 30),
+            "uv_intensity": np.random.normal(30, 1, 30),
+            "ph": np.random.normal(8.0, 0.2, 30),
+            "temperature_c": np.random.normal(30, 1, 30),
+            "catalyst": ["ZnO"] * 30,
+        }
+    )
     df = pd.concat([group1, group2], ignore_index=True)
 
     profiles = {col: _make_profile(col, col != "catalyst") for col in df.columns}
@@ -64,7 +69,13 @@ def sample_bundle() -> DataBundle:
         outcome_variable="degradation_rate",
         entity_id_column="experiment_id",
         time_column="time_hours",
-        numeric_columns=["degradation_rate", "uv_intensity", "ph", "temperature_c", "time_hours"],
+        numeric_columns=[
+            "degradation_rate",
+            "uv_intensity",
+            "ph",
+            "temperature_c",
+            "time_hours",
+        ],
         categorical_columns=["catalyst"],
         datetime_columns=[],
         feature_columns=["uv_intensity", "ph", "temperature_c", "catalyst"],
@@ -94,8 +105,8 @@ def agent() -> DataIntelligenceAgent:
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
-class TestDataIntelligenceAgent:
 
+class TestDataIntelligenceAgent:
     def test_kmeans_detection_returns_labels(self, agent, sample_bundle):
         df = sample_bundle.df
         numeric_cols = ["uv_intensity", "ph", "temperature_c"]

@@ -28,6 +28,7 @@ def _load_yaml(filename: str) -> dict[str, Any]:
 
 # ── Sub-models ────────────────────────────────────────────────────────────────
 
+
 class DataConfig(BaseModel):
     file_path: str = "data/raw/pfas_data.csv"
     outcome_variable: str = "degradation_rate"
@@ -116,6 +117,7 @@ class PipelineConfig(BaseModel):
 
 
 # ── Root settings ─────────────────────────────────────────────────────────────
+
 
 class Settings(BaseModel):
     # Data

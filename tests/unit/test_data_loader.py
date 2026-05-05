@@ -13,15 +13,17 @@ from src.utils.exceptions import DataFileNotFoundError, IngestionError
 
 @pytest.fixture
 def sample_df() -> pd.DataFrame:
-    return pd.DataFrame({
-        "experiment_id": [1, 2, 3, 4, 5],
-        "time_hours": [0.5, 1.0, 2.0, 4.0, 8.0],
-        "degradation_rate": [0.12, 0.25, 0.48, 0.71, 0.89],
-        "uv_intensity": [10.0, 10.0, 20.0, 20.0, 30.0],
-        "ph": [7.0, 7.5, 7.0, 7.5, 8.0],
-        "temperature_c": [20.0, 20.0, 25.0, 25.0, 30.0],
-        "catalyst": ["TiO2", "TiO2", "ZnO", "ZnO", "TiO2"],
-    })
+    return pd.DataFrame(
+        {
+            "experiment_id": [1, 2, 3, 4, 5],
+            "time_hours": [0.5, 1.0, 2.0, 4.0, 8.0],
+            "degradation_rate": [0.12, 0.25, 0.48, 0.71, 0.89],
+            "uv_intensity": [10.0, 10.0, 20.0, 20.0, 30.0],
+            "ph": [7.0, 7.5, 7.0, 7.5, 8.0],
+            "temperature_c": [20.0, 20.0, 25.0, 25.0, 30.0],
+            "catalyst": ["TiO2", "TiO2", "ZnO", "ZnO", "TiO2"],
+        }
+    )
 
 
 @pytest.fixture
@@ -42,7 +44,6 @@ def loader_with_mock(tmp_path, sample_df):
 
 
 class TestDataLoader:
-
     def test_load_returns_bundle(self, loader_with_mock):
         bundle = loader_with_mock.load()
         assert isinstance(bundle, DataBundle)
@@ -96,7 +97,9 @@ class TestDataLoader:
         mock_settings.data.time_column = None
         mock_settings.data.exclude_columns = []
 
-        with patch("src.ingestion.data_loader.get_settings", return_value=mock_settings):
+        with patch(
+            "src.ingestion.data_loader.get_settings", return_value=mock_settings
+        ):
             loader = DataLoader()
             with pytest.raises(DataFileNotFoundError):
                 loader.load()
@@ -112,7 +115,9 @@ class TestDataLoader:
         mock_settings.data.time_column = None
         mock_settings.data.exclude_columns = []
 
-        with patch("src.ingestion.data_loader.get_settings", return_value=mock_settings):
+        with patch(
+            "src.ingestion.data_loader.get_settings", return_value=mock_settings
+        ):
             loader = DataLoader()
             with pytest.raises(IngestionError):
                 loader.load()

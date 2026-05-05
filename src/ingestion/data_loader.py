@@ -23,6 +23,7 @@ logger = get_logger(__name__)
 
 # ── Output schema ─────────────────────────────────────────────────────────────
 
+
 @dataclass
 class ColumnProfile:
     name: str
@@ -43,6 +44,7 @@ class ColumnProfile:
 @dataclass
 class DataBundle:
     """Everything downstream agents need to know about the dataset."""
+
     df: pd.DataFrame
     outcome_variable: str
     entity_id_column: str | None
@@ -50,16 +52,17 @@ class DataBundle:
     numeric_columns: list[str]
     categorical_columns: list[str]
     datetime_columns: list[str]
-    feature_columns: list[str]          # All usable predictors
+    feature_columns: list[str]  # All usable predictors
     column_profiles: dict[str, ColumnProfile]
     n_rows: int
     n_cols: int
     has_missing: bool
     source_path: str
-    schema_summary: str                 # Human-readable for LLM context
+    schema_summary: str  # Human-readable for LLM context
 
 
 # ── Loader ────────────────────────────────────────────────────────────────────
+
 
 class DataLoader:
     """
@@ -101,8 +104,7 @@ class DataLoader:
         exclude.add(outcome)
 
         feature_columns = [
-            c for c in numeric_cols + categorical_cols
-            if c not in exclude
+            c for c in numeric_cols + categorical_cols if c not in exclude
         ]
 
         bundle = DataBundle(
@@ -207,8 +209,12 @@ class DataLoader:
 
         # Auto-detect: column with "id" in name and high cardinality
         candidates = [
-            c for c in df.columns
-            if any(kw in c.lower() for kw in ["id", "entity", "sample", "unit", "experiment"])
+            c
+            for c in df.columns
+            if any(
+                kw in c.lower()
+                for kw in ["id", "entity", "sample", "unit", "experiment"]
+            )
         ]
         for c in candidates:
             if df[c].nunique() > 1:
@@ -216,7 +222,9 @@ class DataLoader:
                 return c
         return None
 
-    def _detect_time_column(self, df: pd.DataFrame, entity_col: str | None) -> str | None:
+    def _detect_time_column(
+        self, df: pd.DataFrame, entity_col: str | None
+    ) -> str | None:
         if self.cfg.time_column:
             if self.cfg.time_column in df.columns:
                 return self.cfg.time_column
@@ -229,8 +237,11 @@ class DataLoader:
 
         # Numeric columns with time-like names (exclude entity column)
         candidates = [
-            c for c in df.select_dtypes(include="number").columns
-            if any(kw in c.lower() for kw in ["time", "hour", "day", "min", "second", "t_"])
+            c
+            for c in df.select_dtypes(include="number").columns
+            if any(
+                kw in c.lower() for kw in ["time", "hour", "day", "min", "second", "t_"]
+            )
             and c != entity_col
         ]
         if candidates:

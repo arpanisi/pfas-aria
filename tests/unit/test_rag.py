@@ -13,7 +13,6 @@ from src.rag.vector_store import RetrievedChunk
 
 
 class TestEmbedder:
-
     @patch("src.rag.embedder.SentenceTransformer")
     @patch("src.rag.embedder.get_settings")
     def test_embed_returns_correct_shape(self, mock_settings, mock_st):
@@ -70,7 +69,6 @@ class TestEmbedder:
 
 
 class TestRetriever:
-
     def _make_chunk(self, score: float, text: str = "sample text") -> RetrievedChunk:
         return RetrievedChunk(
             doc_id="abc123",

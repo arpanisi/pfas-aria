@@ -70,6 +70,7 @@ class BaseAgent(ABC):
 
     def _call_runpod(self, prompt: str, system: str | None) -> str:
         import os
+
         endpoint = self.llm_cfg.runpod_endpoint or os.getenv("RUNPOD_ENDPOINT")
         if not endpoint:
             raise LLMError("RUNPOD_ENDPOINT not set in .env")

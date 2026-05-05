@@ -25,13 +25,14 @@ logger = get_logger(__name__)
 
 # ── Output schemas ────────────────────────────────────────────────────────────
 
+
 @dataclass
 class Regime:
-    label: str                    # e.g. "regime_0", "regime_1"
-    indices: list[int]            # Row indices belonging to this regime
+    label: str  # e.g. "regime_0", "regime_1"
+    indices: list[int]  # Row indices belonging to this regime
     size: int
-    description: str              # LLM-generated plain-language description
-    summary_stats: dict[str, Any] # Mean/std of key variables in this regime
+    description: str  # LLM-generated plain-language description
+    summary_stats: dict[str, Any]  # Mean/std of key variables in this regime
 
 
 @dataclass
@@ -41,8 +42,8 @@ class PanelStructure:
     time_column: str | None
     n_entities: int
     n_time_periods: int
-    balanced: bool                # Same number of obs per entity?
-    recommended_model: str        # "fixed_effects" | "random_effects" | "ols"
+    balanced: bool  # Same number of obs per entity?
+    recommended_model: str  # "fixed_effects" | "random_effects" | "ols"
     hausman_applicable: bool
     reasoning: str
 
@@ -51,32 +52,34 @@ class PanelStructure:
 class FeatureProfile:
     name: str
     is_numeric: bool
-    distribution: str             # "normal" | "skewed" | "bimodal" | "uniform"
+    distribution: str  # "normal" | "skewed" | "bimodal" | "uniform"
     skewness: float | None
     kurtosis: float | None
     outlier_count: int
     correlation_with_outcome: float | None
-    vif_score: float | None       # Populated later during modeling
-    recommended_transform: str    # "none" | "log" | "sqrt" | "standardize"
-    importance_rank: int          # 1 = most important
+    vif_score: float | None  # Populated later during modeling
+    recommended_transform: str  # "none" | "log" | "sqrt" | "standardize"
+    importance_rank: int  # 1 = most important
 
 
 @dataclass
 class DataIntelligenceReport:
     """Full output of the Data Intelligence Agent. Fed to all downstream agents."""
+
     regimes: list[Regime]
     n_regimes: int
-    regime_method: str            # Which method was chosen
+    regime_method: str  # Which method was chosen
     panel_structure: PanelStructure
     feature_profiles: list[FeatureProfile]
-    top_features: list[str]       # Ranked by correlation with outcome
-    labeled_df: pd.DataFrame      # Original df with 'regime' column added
-    schema_summary: str           # Passed through from DataBundle
-    llm_interpretation: str       # Agent's plain-language summary
-    warnings: list[str]           # Data quality warnings
+    top_features: list[str]  # Ranked by correlation with outcome
+    labeled_df: pd.DataFrame  # Original df with 'regime' column added
+    schema_summary: str  # Passed through from DataBundle
+    llm_interpretation: str  # Agent's plain-language summary
+    warnings: list[str]  # Data quality warnings
 
 
 # ── Agent ─────────────────────────────────────────────────────────────────────
+
 
 class DataIntelligenceAgent(BaseAgent):
     """
@@ -146,14 +149,17 @@ grounded in scientific reasoning. Always respond with valid JSON."""
 
         df = bundle.df.copy()
         numeric_cols = [
-            c for c in bundle.numeric_columns
+            c
+            for c in bundle.numeric_columns
             if c != bundle.outcome_variable
             and c not in (bundle.entity_id_column or "")
             and df[c].notna().sum() > 0
         ]
 
         if len(numeric_cols) < 2:
-            warnings.append("Too few numeric columns for regime detection — using single regime")
+            warnings.append(
+                "Too few numeric columns for regime detection — using single regime"
+            )
             df["regime"] = "regime_0"
             return self._build_regimes(df, bundle, ["regime_0"]), "single", df
 
@@ -211,9 +217,11 @@ grounded in scientific reasoning. Always respond with valid JSON."""
         df_sorted = df.sort_values(time_col).reset_index(drop=True)
 
         # Use outcome variable as signal
-        signal = df_sorted[bundle.outcome_variable].fillna(
-            df_sorted[bundle.outcome_variable].mean()
-        ).values.reshape(-1, 1)
+        signal = (
+            df_sorted[bundle.outcome_variable]
+            .fillna(df_sorted[bundle.outcome_variable].mean())
+            .values.reshape(-1, 1)
+        )
 
         model = rpt.Pelt(model="rbf").fit(signal)
         # Penalty controls number of breakpoints
@@ -337,8 +345,11 @@ grounded in scientific reasoning. Always respond with valid JSON."""
     ) -> list[Regime]:
         """Build Regime objects from labeled dataframe."""
         regimes = []
-        min_size = self.settings.agent_config_min_regime_size \
-            if hasattr(self.settings, "agent_config_min_regime_size") else 5
+        min_size = (
+            self.settings.agent_config_min_regime_size
+            if hasattr(self.settings, "agent_config_min_regime_size")
+            else 5
+        )
 
         for label in regime_labels:
             mask = df["regime"] == label
@@ -356,13 +367,15 @@ grounded in scientific reasoning. Always respond with valid JSON."""
                         "std": round(float(subset[col].std()), 4),
                     }
 
-            regimes.append(Regime(
-                label=label,
-                indices=subset.index.tolist(),
-                size=len(subset),
-                description="",   # Filled by LLM interpretation
-                summary_stats=summary,
-            ))
+            regimes.append(
+                Regime(
+                    label=label,
+                    indices=subset.index.tolist(),
+                    size=len(subset),
+                    description="",  # Filled by LLM interpretation
+                    summary_stats=summary,
+                )
+            )
 
         return regimes
 
@@ -393,8 +406,12 @@ grounded in scientific reasoning. Always respond with valid JSON."""
         balanced = bool(obs_per_entity.nunique() == 1)
 
         # Within-group variance test: if entity explains variance → fixed effects
-        within_var = self._compute_within_variance(df, entity_col, bundle.outcome_variable)
-        between_var = self._compute_between_variance(df, entity_col, bundle.outcome_variable)
+        within_var = self._compute_within_variance(
+            df, entity_col, bundle.outcome_variable
+        )
+        between_var = self._compute_between_variance(
+            df, entity_col, bundle.outcome_variable
+        )
 
         if within_var > 0 and between_var > 0:
             within_between_ratio = within_var / between_var
@@ -470,31 +487,37 @@ grounded in scientific reasoning. Always respond with valid JSON."""
                 )
                 transform = self._recommend_transform(series, skewness)
 
-                profiles.append(FeatureProfile(
-                    name=col,
-                    is_numeric=True,
-                    distribution=distribution,
-                    skewness=round(skewness, 4),
-                    kurtosis=round(kurt, 4),
-                    outlier_count=outliers,
-                    correlation_with_outcome=round(corr, 4) if corr is not None else None,
-                    vif_score=None,
-                    recommended_transform=transform,
-                    importance_rank=i + 1,
-                ))
+                profiles.append(
+                    FeatureProfile(
+                        name=col,
+                        is_numeric=True,
+                        distribution=distribution,
+                        skewness=round(skewness, 4),
+                        kurtosis=round(kurt, 4),
+                        outlier_count=outliers,
+                        correlation_with_outcome=round(corr, 4)
+                        if corr is not None
+                        else None,
+                        vif_score=None,
+                        recommended_transform=transform,
+                        importance_rank=i + 1,
+                    )
+                )
             else:
-                profiles.append(FeatureProfile(
-                    name=col,
-                    is_numeric=False,
-                    distribution="categorical",
-                    skewness=None,
-                    kurtosis=None,
-                    outlier_count=0,
-                    correlation_with_outcome=None,
-                    vif_score=None,
-                    recommended_transform="encode",
-                    importance_rank=i + 1,
-                ))
+                profiles.append(
+                    FeatureProfile(
+                        name=col,
+                        is_numeric=False,
+                        distribution="categorical",
+                        skewness=None,
+                        kurtosis=None,
+                        outlier_count=0,
+                        correlation_with_outcome=None,
+                        vif_score=None,
+                        recommended_transform="encode",
+                        importance_rank=i + 1,
+                    )
+                )
 
         return profiles
 
@@ -538,7 +561,8 @@ grounded in scientific reasoning. Always respond with valid JSON."""
     def _rank_features(self, profiles: list[FeatureProfile]) -> list[str]:
         """Rank numeric features by absolute correlation with outcome."""
         numeric = [
-            p for p in profiles
+            p
+            for p in profiles
             if p.is_numeric and p.correlation_with_outcome is not None
         ]
         ranked = sorted(
@@ -569,9 +593,7 @@ grounded in scientific reasoning. Always respond with valid JSON."""
                 f"{k}: mean={v['mean']}, std={v['std']}"
                 for k, v in list(r.summary_stats.items())[:4]
             )
-            regime_summaries.append(
-                f"  {r.label} (n={r.size}): {stats_str}"
-            )
+            regime_summaries.append(f"  {r.label} (n={r.size}): {stats_str}")
 
         top_corr = []
         for p in feature_profiles:

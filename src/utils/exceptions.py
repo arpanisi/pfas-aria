@@ -11,6 +11,7 @@ class ARIAError(Exception):
 
 # ── Ingestion ─────────────────────────────────────────────────────────────────
 
+
 class IngestionError(ARIAError):
     """Raised when data or corpus ingestion fails."""
 
@@ -25,6 +26,7 @@ class CorpusEmptyError(IngestionError):
 
 # ── RAG ──────────────────────────────────────────────────────────────────────
 
+
 class RAGError(ARIAError):
     """Raised when the RAG pipeline fails."""
 
@@ -34,6 +36,7 @@ class VectorStoreError(RAGError):
 
 
 # ── Agent ────────────────────────────────────────────────────────────────────
+
 
 class AgentError(ARIAError):
     """Raised when an agent fails to complete its task."""
@@ -49,6 +52,7 @@ class HypothesisGenerationError(AgentError):
 
 # ── Modeling ─────────────────────────────────────────────────────────────────
 
+
 class ModelingError(ARIAError):
     """Raised when a model fails to fit or produce results."""
 
@@ -59,11 +63,13 @@ class ValidationError(ARIAError):
 
 # ── Grounding ────────────────────────────────────────────────────────────────
 
+
 class GroundingError(ARIAError):
     """Raised when literature grounding fails."""
 
 
 # ── Pipeline ─────────────────────────────────────────────────────────────────
+
 
 class PipelineError(ARIAError):
     """Raised when the supervisor pipeline fails to orchestrate agents."""
@@ -74,6 +80,7 @@ class ConvergenceError(PipelineError):
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
+
 
 class ConfigError(ARIAError):
     """Raised when configuration is invalid or missing."""

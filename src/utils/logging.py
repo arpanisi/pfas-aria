@@ -52,8 +52,7 @@ def setup_logging() -> None:
             retention=log_cfg.retention,
             compression="zip",
             format=(
-                "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
-                "{name}:{line} | {message}"
+                "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{line} | {message}"
             ),
             serialize=False,
         )

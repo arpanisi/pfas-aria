@@ -62,9 +62,7 @@ class RAGPipeline:
         )
 
         if self._corpus_bundle.failed_files:
-            logger.warning(
-                f"Failed to parse: {self._corpus_bundle.failed_files}"
-            )
+            logger.warning(f"Failed to parse: {self._corpus_bundle.failed_files}")
 
         # Step 3: Ensure embedder is warm
         logger.info("Warming up embedding model...")
@@ -81,8 +79,7 @@ class RAGPipeline:
         self._retriever = get_retriever(self._vector_store)
 
         logger.info(
-            f"=== RAG Pipeline: Ready — "
-            f"{self._vector_store.count()} chunks indexed ==="
+            f"=== RAG Pipeline: Ready — {self._vector_store.count()} chunks indexed ==="
         )
         return self._retriever
 

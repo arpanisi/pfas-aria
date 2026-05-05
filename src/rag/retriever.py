@@ -43,9 +43,9 @@ class Retriever:
     ) -> list[RetrievedChunk]:
         """Retrieve context relevant to a set of variables.
         Used by the Hypothesis Agent."""
-        queries = [
-            f"{domain_context} {var}" for var in variable_names
-        ] + [domain_context]
+        queries = [f"{domain_context} {var}" for var in variable_names] + [
+            domain_context
+        ]
 
         return self._store.search_many(
             queries=queries,

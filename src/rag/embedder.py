@@ -36,7 +36,7 @@ class Embedder:
             texts,
             batch_size=32,
             show_progress_bar=len(texts) > 50,
-            normalize_embeddings=True,   # cosine similarity via dot product
+            normalize_embeddings=True,  # cosine similarity via dot product
             convert_to_numpy=True,
         )
         return embeddings
@@ -50,9 +50,7 @@ class Embedder:
         # Embeddings are already normalized so dot product = cosine sim
         return float(np.dot(a, b))
 
-    def batch_similarity(
-        self, query: np.ndarray, corpus: np.ndarray
-    ) -> np.ndarray:
+    def batch_similarity(self, query: np.ndarray, corpus: np.ndarray) -> np.ndarray:
         """Cosine similarity of one query vector against a corpus matrix.
         Returns shape (n_corpus,)."""
         return corpus @ query

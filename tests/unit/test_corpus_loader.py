@@ -9,7 +9,8 @@ import pytest
 from src.ingestion.corpus_loader import CorpusBundle, CorpusLoader, Document
 from src.utils.exceptions import CorpusEmptyError
 
-SAMPLE_TEXT = """
+SAMPLE_TEXT = (
+    """
 Photochemical Degradation of PFAS Compounds Under UV Irradiation
 
 Abstract
@@ -26,7 +27,9 @@ Results
 Degradation followed pseudo-first-order kinetics. Higher UV intensity
 significantly increased the rate constant k. Temperature showed a moderate
 positive correlation with degradation efficiency.
-""" * 5  # Repeat to get enough text for chunking
+"""
+    * 5
+)  # Repeat to get enough text for chunking
 
 
 @pytest.fixture
@@ -49,7 +52,6 @@ def loader_with_mock_dir(mock_corpus_dir):
 
 
 class TestCorpusLoader:
-
     def test_empty_dir_raises(self, loader_with_mock_dir):
         loader, corpus_dir = loader_with_mock_dir
         with pytest.raises(CorpusEmptyError):
@@ -90,7 +92,9 @@ class TestCorpusLoader:
         mock_settings.corpus.chunk_size = 100
         mock_settings.corpus.chunk_overlap = 20
 
-        with patch("src.ingestion.corpus_loader.get_settings", return_value=mock_settings):
+        with patch(
+            "src.ingestion.corpus_loader.get_settings", return_value=mock_settings
+        ):
             loader = CorpusLoader()
             chunks = loader._split_into_chunks(SAMPLE_TEXT)
             assert len(chunks) > 1
