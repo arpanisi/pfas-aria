@@ -1,0 +1,34 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# PIPELINE CONFIGURATION
+# Controls the full end-to-end run behaviour.
+# ─────────────────────────────────────────────────────────────────────────────
+
+pipeline:
+  # Unique name for this run (auto-generated if left null)
+  run_name: null
+
+  # Which phases to execute (set false to skip during development)
+  phases:
+    ingestion: true
+    rag_build: true
+    data_intelligence: true
+    hypothesis_generation: true
+    modeling: true
+    validation: true
+    grounding: true
+    report: true
+
+  # Resume from a previous run ID (null = start fresh)
+  resume_from_run_id: null
+
+logging:
+  level: "INFO"               # DEBUG | INFO | WARNING | ERROR
+  log_to_file: true
+  log_directory: "data/outputs/logs"
+  rotation: "10 MB"
+  retention: "30 days"
+
+output:
+  save_intermediate_results: true
+  report_format: ["markdown", "pdf"]
+  report_directory: "data/outputs/reports"

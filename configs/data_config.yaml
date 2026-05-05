@@ -1,0 +1,42 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# DATA CONFIGURATION
+# This is the only file you need to edit before running the pipeline.
+# All other behaviour is automated.
+# ─────────────────────────────────────────────────────────────────────────────
+
+data:
+  # Path to your experimental data file (relative to project root)
+  file_path: "data/raw/pfas_data.csv"
+
+  # The variable the agent is trying to explain / predict
+  outcome_variable: "degradation_rate"
+
+  # Column that identifies unique experimental units (leave null to auto-detect)
+  entity_id_column: null
+
+  # Column that identifies time or sequence (leave null to auto-detect)
+  time_column: null
+
+  # Columns to always exclude from analysis (ids, free text, etc.)
+  exclude_columns: []
+
+corpus:
+  # Directory containing your PDF papers
+  directory: "data/corpus"
+
+  # Chunk size for RAG splitting (in tokens)
+  chunk_size: 512
+  chunk_overlap: 64
+
+domain:
+  # Plain-language description of your research domain
+  # The agent uses this to prime its reasoning
+  context: "PFAS photochemical degradation kinetics and mechanisms"
+
+  # Keywords to bias arXiv and Semantic Scholar searches
+  keywords:
+    - "PFAS degradation"
+    - "per- and polyfluoroalkyl substances"
+    - "photochemical treatment"
+    - "fluorine bond cleavage"
+    - "advanced oxidation"

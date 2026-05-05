@@ -1,0 +1,32 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MODEL CONFIGURATION
+# LLM and embedding settings.
+# ─────────────────────────────────────────────────────────────────────────────
+
+llm:
+  # Provider: "ollama" (local) or "runpod" (cloud GPU)
+  provider: "ollama"
+
+  # Model to use - swap to llama3.1:70b when on RunPod
+  model: "llama3.1:8b"
+
+  # RunPod endpoint (only used when provider = "runpod")
+  runpod_endpoint: null  # Set in .env as RUNPOD_ENDPOINT
+
+  temperature: 0.1        # Low = more deterministic, better for science
+  max_tokens: 4096
+  request_timeout: 120
+
+embeddings:
+  # Embedding model for RAG and similarity scoring
+  model: "all-MiniLM-L6-v2"   # Fast, good quality, runs locally
+  device: "cpu"                # Switch to "cuda" on RunPod
+
+vector_store:
+  provider: "chromadb"
+  persist_directory: "data/outputs/chroma"
+  collection_name: "pfas_corpus"
+
+mlflow:
+  tracking_uri: "mlflow"       # Local ./mlflow directory
+  experiment_name: "pfas-aria"

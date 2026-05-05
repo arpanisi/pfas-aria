@@ -1,0 +1,55 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# AGENT CONFIGURATION
+# Controls behaviour of the supervisor loop and all specialist agents.
+# ─────────────────────────────────────────────────────────────────────────────
+
+supervisor:
+  # Pipeline stops when global match score reaches this threshold
+  convergence_threshold: 0.75
+
+  # Hard stop after this many rounds regardless of score
+  max_rounds: 10
+
+  # How many hypotheses to generate per round
+  hypotheses_per_round: 6
+
+  # Minimum hypotheses that must pass validation to proceed to grounding
+  min_passing_hypotheses: 2
+
+convergence:
+  # Weights must sum to 1.0
+  weights:
+    rag_similarity: 0.50       # Match against your 50 papers
+    arxiv_citation: 0.30       # Match against open literature
+    validation_pass_rate: 0.20 # % of statistical tests passed
+
+data_intelligence:
+  # Regime detection methods to run (agent picks best)
+  regime_methods:
+    - "pelt"       # Changepoint detection (time-based)
+    - "hdbscan"    # Density clustering (feature-based)
+  min_regime_size: 10          # Minimum observations per regime
+
+hypothesis:
+  # Variable selection constraints
+  max_variables_per_model: 8
+  max_interaction_terms: 3
+  allow_polynomial_terms: true
+  allow_log_transforms: true
+
+modeling:
+  # Model families the agent can use
+  allowed_models:
+    - "ols"
+    - "fixed_effects"
+    - "random_effects"
+    - "lasso"
+    - "gradient_boosting"
+  # Use complex ML models only when simpler ones fail to pass validation
+  prefer_interpretable: true
+
+grounding:
+  # Max papers to fetch from arXiv per finding
+  arxiv_max_results: 10
+  # Minimum similarity score to count as a citation match
+  min_similarity_score: 0.60

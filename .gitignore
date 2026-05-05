@@ -1,0 +1,58 @@
+# ── Secrets ───────────────────────────────────────────────────────────────────
+.env
+*.pem
+*.key
+
+# ── Data (tracked by DVC, not Git) ───────────────────────────────────────────
+data/raw/
+data/processed/
+data/corpus/
+data/outputs/
+!data/.gitkeep
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/corpus/.gitkeep
+!data/outputs/.gitkeep
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# ── MLflow ────────────────────────────────────────────────────────────────────
+mlflow/
+
+# ── ChromaDB ─────────────────────────────────────────────────────────────────
+chroma/
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+*.xml
+
+# ── Editors ───────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# ── Node (frontend) ───────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/.env
+frontend/dist/
+frontend/build/
+
+# ── Notebooks ────────────────────────────────────────────────────────────────
+notebooks/**/.ipynb_checkpoints/
