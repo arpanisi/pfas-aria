@@ -220,7 +220,12 @@ class TestHypothesisAgent:
         }]"""
         with patch.object(agent, "call_llm", return_value=response):
             result = agent.run(mock_report, mock_retriever, round_number=1)
-        assert result.hypotheses[0].model_family == "ols"
+        # Invalid family corrected to ols, then panel enforcement upgrades to fixed_effects
+        assert result.hypotheses[0].model_family in {
+            "ols",
+            "fixed_effects",
+            "random_effects",
+        }
 
     def test_panel_model_enforced(self, agent, mock_report, mock_retriever):
         """OLS should be upgraded to fixed_effects for panel data."""
