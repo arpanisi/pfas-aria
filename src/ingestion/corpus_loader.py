@@ -166,7 +166,7 @@ class CorpusLoader:
 
     def _extract_title(self, text: str, fallback: str) -> str:
         """Heuristically extract paper title from first lines of text."""
-        lines = [l.strip() for l in text.split("\n") if l.strip()]
+        lines = [line.strip() for line in text.split("\n") if line.strip()]
         # Title is usually in the first few non-empty lines
         # Take the longest line in the first 5 lines as the title candidate
         candidates = lines[:5]

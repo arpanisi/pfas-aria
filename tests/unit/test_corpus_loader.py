@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.ingestion.corpus_loader import CorpusLoader, CorpusBundle, Document
+from src.ingestion.corpus_loader import CorpusBundle, CorpusLoader, Document
 from src.utils.exceptions import CorpusEmptyError
-
 
 SAMPLE_TEXT = """
 Photochemical Degradation of PFAS Compounds Under UV Irradiation

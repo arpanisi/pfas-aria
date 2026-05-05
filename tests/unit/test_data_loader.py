@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import io
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
 
-from src.ingestion.data_loader import DataLoader, DataBundle
+from src.ingestion.data_loader import DataBundle, DataLoader
 from src.utils.exceptions import DataFileNotFoundError, IngestionError
 
 

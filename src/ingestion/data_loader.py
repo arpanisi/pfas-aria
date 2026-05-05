@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-import numpy as np
 
 from src.utils.config import get_settings
 from src.utils.exceptions import DataFileNotFoundError, IngestionError

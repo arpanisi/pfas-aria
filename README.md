@@ -1,8 +1,8 @@
 # PFAS-ARIA
 ### Autonomous Research Intelligence Agent for PFAS Degradation Analysis
 
-[![Tests](https://github.com/arpanisi/pfas-aria/actions/workflows/test.yml/badge.svg)](https://github.com/arpanisi/pfas-aria/actions)
-[![Lint](https://github.com/arpanisi/pfas-aria/actions/workflows/lint.yml/badge.svg)](https://github.com/arpanisi/pfas-aria/actions)
+[![Tests](https://github.com/yourusername/pfas-aria/actions/workflows/test.yml/badge.svg)](https://github.com/yourusername/pfas-aria/actions)
+[![Lint](https://github.com/yourusername/pfas-aria/actions/workflows/lint.yml/badge.svg)](https://github.com/yourusername/pfas-aria/actions)
 
 PFAS-ARIA is an autonomous multi-agent system that ingests experimental PFAS degradation data and a corpus of scientific papers, then independently discovers data regimes, generates statistical hypotheses, runs and validates models, and grounds findings in open literature — stopping only when results converge with published science.
 
@@ -22,7 +22,7 @@ A supervisor agent orchestrates specialist sub-agents in a loop with a configura
 
 ```bash
 # 1. Clone
-git clone https://github.com/arpanisi/pfas-aria.git
+git clone https://github.com/yourusername/pfas-aria.git
 cd pfas-aria
 
 # 2. Setup
@@ -76,7 +76,7 @@ make format         # Auto-format
 |---|---|---|
 | 1 | ✅ | Repo structure, configs, logging, CI/CD |
 | 2 | ✅ | Data ingestion, PDF parsing, RAG pipeline |
-| 3 | 🔄 | Data Intelligence Agent |
+| 3 | ✅ | Data Intelligence Agent |
 | 4 | ⬜ | Hypothesis Agent |
 | 5 | ⬜ | Modeling + Validation Engine |
 | 6 | ⬜ | Literature Grounding Agent |
