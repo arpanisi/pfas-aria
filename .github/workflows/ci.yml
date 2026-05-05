@@ -1,4 +1,4 @@
-name: Lint
+name: CI
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  lint:
+  ci:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,7 +19,7 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Install lint dependencies
+      - name: Install dependencies
         run: pip install -r requirements.txt
 
       - name: Ruff lint
@@ -30,3 +30,6 @@ jobs:
 
       - name: Mypy type check
         run: mypy src/ --ignore-missing-imports
+
+      - name: Run tests with coverage
+        run: pytest tests/ -v --tb=short --cov=src --cov-report=xml

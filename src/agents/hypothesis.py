@@ -313,7 +313,7 @@ Return ONLY the JSON array. No other text."""
         interactions = [
             (str(pair[0]), str(pair[1]))
             for pair in interaction_raw
-            if isinstance(pair, (list, tuple)) and len(pair) == 2
+            if isinstance(pair, list | tuple) and len(pair) == 2
         ]
         control_vars = [
             str(v) for v in item.get("control_variables", []) if str(v) in valid_columns

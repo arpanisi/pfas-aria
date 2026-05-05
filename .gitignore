@@ -56,3 +56,7 @@ frontend/build/
 
 # ── Notebooks ────────────────────────────────────────────────────────────────
 notebooks/**/.ipynb_checkpoints/
+
+# ── Workflows ────────────────────────────────────────────────────────────────
+.github/workflows/lint.yml
+.github/workflows/test.yml

@@ -229,23 +229,23 @@ class ValidationEngine:
             if len(available) < 2:
                 return [], True
 
-            X = df[available].dropna()
-            if len(X) < len(available) + 2:
+            x_mat = df[available].dropna()
+            if len(x_mat) < len(available) + 2:
                 return [], True
 
             vif_results = []
-            X_arr = X.values
+            x_arr = x_mat.values
 
             for i, col in enumerate(available):
-                other_cols = [j for j in range(X_arr.shape[1]) if j != i]
+                other_cols = [j for j in range(x_arr.shape[1]) if j != i]
                 if not other_cols:
                     continue
 
-                y_i = X_arr[:, i]
-                X_others = X_arr[:, other_cols]
+                y_i = x_arr[:, i]
+                x_others = x_arr[:, other_cols]
 
-                reg = LinearRegression().fit(X_others, y_i)
-                r2 = float(reg.score(X_others, y_i))
+                reg = LinearRegression().fit(x_others, y_i)
+                r2 = float(reg.score(x_others, y_i))
                 vif = float(1 / (1 - r2)) if r2 < 1.0 else float("inf")
 
                 vif_results.append(
@@ -292,9 +292,9 @@ class ValidationEngine:
 
             # BP test: regress squared residuals on fitted values
             sq_res = res**2
-            X_bp = np.column_stack([np.ones(len(fit)), fit])
-            reg = LinearRegression().fit(X_bp[:, 1:], sq_res)
-            r2 = float(reg.score(X_bp[:, 1:], sq_res))
+            x_bp = np.column_stack([np.ones(len(fit)), fit])
+            reg = LinearRegression().fit(x_bp[:, 1:], sq_res)
+            r2 = float(reg.score(x_bp[:, 1:], sq_res))
 
             n = len(res)
             bp_stat = n * r2
@@ -339,12 +339,12 @@ class ValidationEngine:
             if len(working) < CV_FOLDS * 2:
                 return [], 0.0, 0.0, True
 
-            X = working[variables].values
+            x_arr2 = working[variables].values
             y = working[outcome].values
 
             reg = LinearRegression()
             kf = KFold(n_splits=CV_FOLDS, shuffle=True, random_state=42)
-            scores = cross_val_score(reg, X, y, cv=kf, scoring="r2")
+            scores = cross_val_score(reg, x_arr2, y, cv=kf, scoring="r2")
             scores_list = [float(s) for s in scores]
             mean_score = float(np.mean(scores))
             std_score = float(np.std(scores))

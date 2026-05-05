@@ -120,28 +120,28 @@ class ModelingEngine:
     def _fit(self, hypothesis: Hypothesis, df: pd.DataFrame, label: str) -> ModelResult:
         """Prepare data and dispatch to the correct model family."""
         try:
-            X, y, col_names = self._prepare_data(hypothesis, df)
+            x_design, y, col_names = self._prepare_data(hypothesis, df)
 
-            if X.shape[0] < X.shape[1] + 2:
+            if x_design.shape[0] < x_design.shape[1] + 2:
                 return self._error_result(
                     hypothesis,
-                    f"Insufficient observations (n={X.shape[0]}) for {X.shape[1]} predictors",
+                    f"Insufficient observations (n={x_design.shape[0]}) for {x_design.shape[1]} predictors",
                 )
 
             model_type = hypothesis.model_family
 
             if model_type == "ols":
-                return self._fit_ols(hypothesis, X, y, col_names, df, label)
+                return self._fit_ols(hypothesis, x_design, y, col_names, df, label)
             elif model_type in ("fixed_effects", "random_effects"):
-                return self._fit_panel(hypothesis, X, y, col_names, df, label)
+                return self._fit_panel(hypothesis, x_design, y, col_names, df, label)
             elif model_type == "lasso":
-                return self._fit_lasso(hypothesis, X, y, col_names, df, label)
+                return self._fit_lasso(hypothesis, x_design, y, col_names, df, label)
             elif model_type == "gradient_boosting":
                 return self._fit_gradient_boosting(
-                    hypothesis, X, y, col_names, df, label
+                    hypothesis, x_design, y, col_names, df, label
                 )
             else:
-                return self._fit_ols(hypothesis, X, y, col_names, df, label)
+                return self._fit_ols(hypothesis, x_design, y, col_names, df, label)
 
         except Exception as e:
             logger.warning(f"Model failed for {hypothesis.id}: {e}")
@@ -168,36 +168,36 @@ class ModelingEngine:
             raise ModelingError(f"Too few observations after dropna: {len(working)}")
 
         y = working[outcome].astype(float)
-        X = working[available].copy()
+        x_design = working[available].copy()
 
         # Encode categoricals
-        X = pd.get_dummies(X, drop_first=True)
+        x_design = pd.get_dummies(x_design, drop_first=True)
 
         # Apply suggested transforms
         for col, transform in hypothesis.suggested_transforms.items():
-            if col in X.columns:
-                if transform == "log" and (X[col] > 0).all():
-                    X[col] = np.log(X[col])
-                elif transform == "sqrt" and (X[col] >= 0).all():
-                    X[col] = np.sqrt(X[col])
+            if col in x_design.columns:
+                if transform == "log" and (x_design[col] > 0).all():
+                    x_design[col] = np.log(x_design[col])
+                elif transform == "sqrt" and (x_design[col] >= 0).all():
+                    x_design[col] = np.sqrt(x_design[col])
 
         # Add interaction terms
         for var1, var2 in hypothesis.interaction_terms:
-            col1 = var1 if var1 in X.columns else None
-            col2 = var2 if var2 in X.columns else None
+            col1 = var1 if var1 in x_design.columns else None
+            col2 = var2 if var2 in x_design.columns else None
             if col1 and col2:
                 interaction_name = f"{var1}_x_{var2}"
-                X[interaction_name] = X[col1] * X[col2]
+                x_design[interaction_name] = x_design[col1] * x_design[col2]
 
-        col_names = list(X.columns)
-        return X, y, col_names
+        col_names = list(x_design.columns)
+        return x_design, y, col_names
 
     # ── OLS ───────────────────────────────────────────────────────────────────
 
     def _fit_ols(
         self,
         hypothesis: Hypothesis,
-        X: pd.DataFrame,
+        x_design: pd.DataFrame,
         y: pd.Series,
         col_names: list[str],
         df: pd.DataFrame,
@@ -205,8 +205,8 @@ class ModelingEngine:
     ) -> ModelResult:
         import statsmodels.api as sm
 
-        X_const = sm.add_constant(X)
-        model = sm.OLS(y, X_const).fit()
+        x_const = sm.add_constant(x_design)
+        model = sm.OLS(y, x_const).fit()
 
         return self._extract_statsmodels_result(
             hypothesis=hypothesis,
@@ -221,7 +221,7 @@ class ModelingEngine:
     def _fit_panel(
         self,
         hypothesis: Hypothesis,
-        X: pd.DataFrame,
+        x_design: pd.DataFrame,
         y: pd.Series,
         col_names: list[str],
         df: pd.DataFrame,
@@ -246,30 +246,30 @@ class ModelingEngine:
             logger.warning(
                 f"{hypothesis.id}: Panel columns not found — falling back to OLS"
             )
-            return self._fit_ols(hypothesis, X, y, col_names, df, label)
+            return self._fit_ols(hypothesis, x_design, y, col_names, df, label)
 
         try:
             from linearmodels.panel import PanelOLS, RandomEffects
 
             # Build panel dataframe
-            panel_df = X.copy()
+            panel_df = x_design.copy()
             panel_df[hypothesis.outcome_variable] = y.values
-            panel_df["__entity__"] = df.loc[X.index, entity_col].values
-            panel_df["__time__"] = df.loc[X.index, time_col].values
+            panel_df["__entity__"] = df.loc[x_design.index, entity_col].values
+            panel_df["__time__"] = df.loc[x_design.index, time_col].values
             panel_df = panel_df.set_index(["__entity__", "__time__"])
 
             y_panel = panel_df[hypothesis.outcome_variable]
-            X_panel = panel_df.drop(columns=[hypothesis.outcome_variable])
+            x_panel = panel_df.drop(columns=[hypothesis.outcome_variable])
 
             if hypothesis.model_family == "fixed_effects":
                 model = PanelOLS(
                     y_panel,
-                    X_panel,
+                    x_panel,
                     entity_effects=True,
                     drop_absorbed=True,
                 ).fit(cov_type="clustered", cluster_entity=True)
             else:
-                model = RandomEffects(y_panel, X_panel).fit()
+                model = RandomEffects(y_panel, x_panel).fit()
 
             return self._extract_linearmodels_result(
                 hypothesis=hypothesis,
@@ -281,32 +281,32 @@ class ModelingEngine:
 
         except Exception as e:
             logger.warning(f"Panel model failed: {e} — falling back to OLS")
-            return self._fit_ols(hypothesis, X, y, col_names, df, label)
+            return self._fit_ols(hypothesis, x_design, y, col_names, df, label)
 
     # ── LASSO ─────────────────────────────────────────────────────────────────
 
     def _fit_lasso(
         self,
         hypothesis: Hypothesis,
-        X: pd.DataFrame,
+        x_design: pd.DataFrame,
         y: pd.Series,
         col_names: list[str],
         df: pd.DataFrame,
         label: str,
     ) -> ModelResult:
         scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
+        x_scaled = scaler.fit_transform(x_design)
 
         lasso = LassoCV(cv=5, random_state=42, max_iter=5000)
-        lasso.fit(X_scaled, y)
+        lasso.fit(x_scaled, y)
 
-        y_pred = lasso.predict(X_scaled)
+        y_pred = lasso.predict(x_scaled)
         residuals = pd.Series(y.values - y_pred, index=y.index)
         ss_res = float(np.sum(residuals**2))
         ss_tot = float(np.sum((y - y.mean()) ** 2))
         r2 = float(1 - ss_res / ss_tot) if ss_tot > 0 else 0.0
 
-        n, p = X.shape
+        n, p = x_design.shape
         adj_r2 = float(1 - (1 - r2) * (n - 1) / (n - p - 1)) if n > p + 1 else r2
 
         coefficients = {col: float(c) for col, c in zip(col_names, lasso.coef_)}
@@ -339,7 +339,7 @@ class ModelingEngine:
     def _fit_gradient_boosting(
         self,
         hypothesis: Hypothesis,
-        X: pd.DataFrame,
+        x_design: pd.DataFrame,
         y: pd.Series,
         col_names: list[str],
         df: pd.DataFrame,
@@ -353,12 +353,12 @@ class ModelingEngine:
             learning_rate=0.05,
             random_state=42,
         )
-        gb.fit(X, y)
+        gb.fit(x_design, y)
 
-        y_pred = gb.predict(X)
+        y_pred = gb.predict(x_design)
         residuals = pd.Series(y.values - y_pred, index=y.index)
-        r2 = float(gb.score(X, y))
-        n, p = X.shape
+        r2 = float(gb.score(x_design, y))
+        n, p = x_design.shape
         adj_r2 = float(1 - (1 - r2) * (n - 1) / (n - p - 1)) if n > p + 1 else r2
 
         # Feature importance as proxy for coefficients
