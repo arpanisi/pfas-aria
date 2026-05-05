@@ -88,8 +88,7 @@ def agent() -> DataIntelligenceAgent:
     mock_settings.domain.context = "PFAS degradation"
     mock_settings.agent_config_min_regime_size = 5
 
-    with patch("src.agents.base.get_settings", return_value=mock_settings), \
-         patch("src.agents.data_intelligence.get_settings", return_value=mock_settings):
+    with patch("src.agents.base.get_settings", return_value=mock_settings):
         return DataIntelligenceAgent()
 
 

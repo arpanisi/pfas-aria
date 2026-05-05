@@ -85,7 +85,7 @@ class DataLoader:
 
         outcome = self._resolve_outcome(df)
         entity_col = self._detect_entity_column(df)
-        time_col = self._detect_time_column(df)
+        time_col = self._detect_time_column(df, entity_col)
 
         profiles = self._profile_columns(df)
 
@@ -177,7 +177,7 @@ class DataLoader:
             # Try datetime
             if df[col].dtype == object:
                 try:
-                    df[col] = pd.to_datetime(df[col], infer_datetime_format=True)
+                    df[col] = pd.to_datetime(df[col])
                     continue
                 except (ValueError, TypeError):
                     pass
@@ -216,7 +216,7 @@ class DataLoader:
                 return c
         return None
 
-    def _detect_time_column(self, df: pd.DataFrame) -> str | None:
+    def _detect_time_column(self, df: pd.DataFrame, entity_col: str | None) -> str | None:
         if self.cfg.time_column:
             if self.cfg.time_column in df.columns:
                 return self.cfg.time_column
@@ -227,10 +227,11 @@ class DataLoader:
             logger.info(f"Auto-detected time column: '{datetime_cols[0]}'")
             return datetime_cols[0]
 
-        # Numeric columns with time-like names
+        # Numeric columns with time-like names (exclude entity column)
         candidates = [
             c for c in df.select_dtypes(include="number").columns
             if any(kw in c.lower() for kw in ["time", "hour", "day", "min", "second", "t_"])
+            and c != entity_col
         ]
         if candidates:
             logger.info(f"Auto-detected time column: '{candidates[0]}'")

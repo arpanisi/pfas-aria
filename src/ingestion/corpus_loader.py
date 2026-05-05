@@ -207,5 +207,5 @@ class CorpusLoader:
 
     @staticmethod
     def _count_tokens(text: str) -> int:
-        """Approximate token count (1 token ≈ 4 chars)."""
-        return len(text) // 4
+        """Approximate token count (1 token ≈ 4 chars). Minimum 1 for non-empty text."""
+        return max(1, len(text) // 4)
