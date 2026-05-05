@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
+from numpy.typing import NDArray
 
 from src.utils.config import get_settings
 from src.utils.logging import get_logger
@@ -27,7 +28,7 @@ class Embedder:
         self._model_name = cfg.model
         logger.info("Embedding model ready")
 
-    def embed(self, texts: list[str]) -> np.ndarray:
+    def embed(self, texts: list[str]) -> NDArray[np.float32]:
         """Embed a list of texts. Returns shape (n, embedding_dim)."""
         if not texts:
             raise ValueError("Cannot embed empty list")
@@ -39,7 +40,7 @@ class Embedder:
             normalize_embeddings=True,  # cosine similarity via dot product
             convert_to_numpy=True,
         )
-        return embeddings
+        return np.asarray(embeddings, dtype=np.float32)
 
     def embed_one(self, text: str) -> np.ndarray:
         """Embed a single text. Returns shape (embedding_dim,)."""

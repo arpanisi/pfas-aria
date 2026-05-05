@@ -261,19 +261,22 @@ class ModelingEngine:
             y_panel = panel_df[hypothesis.outcome_variable]
             x_panel = panel_df.drop(columns=[hypothesis.outcome_variable])
 
+            from typing import Any as AnyModel
+
+            panel_model: AnyModel
             if hypothesis.model_family == "fixed_effects":
-                model = PanelOLS(
+                panel_model = PanelOLS(
                     y_panel,
                     x_panel,
                     entity_effects=True,
                     drop_absorbed=True,
                 ).fit(cov_type="clustered", cluster_entity=True)
             else:
-                model = RandomEffects(y_panel, x_panel).fit()
+                panel_model = RandomEffects(y_panel, x_panel).fit()
 
             return self._extract_linearmodels_result(
                 hypothesis=hypothesis,
-                model=model,
+                model=panel_model,
                 col_names=col_names,
                 model_type=hypothesis.model_family,
                 label=label,
