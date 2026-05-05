@@ -32,7 +32,7 @@ class Embedder:
         if not texts:
             raise ValueError("Cannot embed empty list")
 
-        embeddings = self._model.encode(
+        embeddings: np.ndarray = self._model.encode(
             texts,
             batch_size=32,
             show_progress_bar=len(texts) > 50,
@@ -43,7 +43,8 @@ class Embedder:
 
     def embed_one(self, text: str) -> np.ndarray:
         """Embed a single text. Returns shape (embedding_dim,)."""
-        return self.embed([text])[0]
+        result: np.ndarray = self.embed([text])[0]
+        return result
 
     def similarity(self, a: np.ndarray, b: np.ndarray) -> float:
         """Cosine similarity between two embedding vectors."""
@@ -53,7 +54,8 @@ class Embedder:
     def batch_similarity(self, query: np.ndarray, corpus: np.ndarray) -> np.ndarray:
         """Cosine similarity of one query vector against a corpus matrix.
         Returns shape (n_corpus,)."""
-        return corpus @ query
+        result: np.ndarray = corpus @ query
+        return result
 
     @property
     def model_name(self) -> str:

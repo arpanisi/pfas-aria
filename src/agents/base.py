@@ -66,7 +66,7 @@ class BaseAgent(ABC):
             timeout=self.llm_cfg.request_timeout,
         )
         response.raise_for_status()
-        return response.json()["message"]["content"]
+        return str(response.json()["message"]["content"])
 
     def _call_runpod(self, prompt: str, system: str | None) -> str:
         import os
@@ -91,7 +91,7 @@ class BaseAgent(ABC):
             timeout=self.llm_cfg.request_timeout,
         )
         response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
+        return str(response.json()["choices"][0]["message"]["content"])
 
     # ── JSON parsing ─────────────────────────────────────────────────────────
 

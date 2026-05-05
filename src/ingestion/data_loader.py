@@ -219,7 +219,7 @@ class DataLoader:
         for c in candidates:
             if df[c].nunique() > 1:
                 logger.info(f"Auto-detected entity column: '{c}'")
-                return c
+                return str(c)
         return None
 
     def _detect_time_column(
@@ -233,7 +233,7 @@ class DataLoader:
         datetime_cols = df.select_dtypes(include=["datetime64"]).columns.tolist()
         if datetime_cols:
             logger.info(f"Auto-detected time column: '{datetime_cols[0]}'")
-            return datetime_cols[0]
+            return str(datetime_cols[0])
 
         # Numeric columns with time-like names (exclude entity column)
         candidates = [
@@ -246,7 +246,7 @@ class DataLoader:
         ]
         if candidates:
             logger.info(f"Auto-detected time column: '{candidates[0]}'")
-            return candidates[0]
+            return str(candidates[0])
 
         return None
 

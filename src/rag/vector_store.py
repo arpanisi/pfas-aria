@@ -163,10 +163,10 @@ class VectorStore:
         return sorted(all_chunks, key=lambda c: c.similarity_score, reverse=True)
 
     def count(self) -> int:
-        return self._collection.count()
+        return int(self._collection.count())
 
     def is_built(self) -> bool:
-        return self._collection.count() > 0
+        return bool(self._collection.count() > 0)
 
     # ── Private ───────────────────────────────────────────────────────────────
 

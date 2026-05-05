@@ -567,7 +567,7 @@ grounded in scientific reasoning. Always respond with valid JSON."""
         ]
         ranked = sorted(
             numeric,
-            key=lambda p: abs(p.correlation_with_outcome),
+            key=lambda p: abs(p.correlation_with_outcome or 0.0),
             reverse=True,
         )
         for i, p in enumerate(ranked):
@@ -645,7 +645,7 @@ Respond as a JSON object with keys:
                 if regime.label in regime_desc:
                     regime.description = regime_desc[regime.label]
 
-            return parsed.get("scientific_interpretation", response)
+            return str(parsed.get("scientific_interpretation", response))
         except Exception as e:
             logger.warning(f"LLM interpretation failed: {e} — using fallback")
             return (
