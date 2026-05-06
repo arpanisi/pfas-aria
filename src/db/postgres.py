@@ -8,6 +8,7 @@ Stores: experimental data versions, paper registry, pipeline outputs,
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
@@ -36,7 +37,7 @@ class Base(DeclarativeBase):
     pass
 
 
-async def get_session() -> AsyncSession:  # type: ignore[return]
+async def get_session() -> AsyncGenerator[AsyncSession, None]:  # type: ignore[override]
     """Yield an async DB session. Use as FastAPI dependency or async context."""
     async with AsyncSessionFactory() as session:
         try:

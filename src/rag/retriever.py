@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from typing import Any
 
 from src.rag.vector_store import RetrievedChunk, VectorStore
 from src.utils.logging import get_logger
@@ -45,6 +46,11 @@ class Retriever:
             logger.debug("RAG cache: Redis unavailable — no caching")
             return False
 
+    def _get_redis(self) -> Any:
+        import redis
+
+        return redis.Redis(host="localhost", port=6379, db=1)
+
     def _cache_key(self, query: str, top_k: int, min_similarity: float) -> str:
         raw = f"rag:{query}:{top_k}:{min_similarity}:{self._store.count()}"
         return f"rag:{hashlib.md5(raw.encode()).hexdigest()[:16]}"
@@ -53,9 +59,7 @@ class Retriever:
         if not self._redis_available:
             return None
         try:
-            import redis
-
-            r = redis.Redis(host="localhost", port=6379, db=1)
+            r = self._get_redis()
             data = r.get(key)
             if not data:
                 return None
@@ -68,9 +72,7 @@ class Retriever:
         if not self._redis_available:
             return
         try:
-            import redis
-
-            r = redis.Redis(host="localhost", port=6379, db=1)
+            r = self._get_redis()
             serialized = json.dumps(
                 [
                     {
@@ -167,9 +169,7 @@ class Retriever:
         if not self._redis_available:
             return
         try:
-            import redis
-
-            r = redis.Redis(host="localhost", port=6379, db=1)
+            r = self._get_redis()
             keys = list(r.scan_iter("rag:*"))
             if keys:
                 r.delete(*keys)

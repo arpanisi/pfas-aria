@@ -68,8 +68,10 @@ class OutputPersister:
             run.final_match_score = final_match_score
             run.converged = converged
             run.n_rounds_completed = n_rounds
-            run.stop_reason = stop_reason
-            run.error_message = error_message
+            run.stop_reason = str(stop_reason) if stop_reason is not None else None
+            run.error_message = (
+                str(error_message) if error_message is not None else None
+            )
             await self._session.flush()
 
     async def persist_regimes(self, run_id: str, intelligence_report: object) -> None:
