@@ -154,9 +154,14 @@ class ModelingEngine:
     ) -> tuple[pd.DataFrame, pd.Series, list[str]]:
         """Build design matrix X and outcome y from hypothesis spec."""
         outcome = hypothesis.outcome_variable
-        all_vars = list(
-            dict.fromkeys(hypothesis.primary_variables + hypothesis.control_variables)
-        )
+        primary_vars = list(dict.fromkeys(hypothesis.primary_variables))
+        control_vars = list(dict.fromkeys(hypothesis.control_variables))
+        all_vars = list(dict.fromkeys(primary_vars + control_vars))
+
+        # Require at least one valid primary predictor for hypothesis fit.
+        primary_available = [c for c in primary_vars if c in df.columns]
+        if not primary_available:
+            raise ModelingError(f"No valid primary variables available for {hypothesis.id}")
 
         # Filter to available columns
         available = [c for c in all_vars if c in df.columns]
