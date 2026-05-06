@@ -4,7 +4,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 .PHONY: help install install-dev setup lint format test test-cov \
-        run-pipeline run-api run-frontend dvc-init clean
+        run-pipeline run-api run-frontend dvc-init clean \
+        db-up db-down db-logs db-reset
 
 # Default: show help
 help:
@@ -22,6 +23,10 @@ help:
 	@echo "  make run-api       Start the FastAPI backend (dev mode)"
 	@echo "  make run-frontend  Start the React frontend (dev mode)"
 	@echo "  make dvc-init      Initialise DVC for data versioning"
+	@echo "  make db-up         Start local database stack (Postgres, Mongo, Redis, Chroma)"
+	@echo "  make db-down       Stop local database stack"
+	@echo "  make db-logs       Follow database logs"
+	@echo "  make db-reset      Wipe all local database volumes"
 	@echo "  make clean         Remove all generated output files"
 	@echo ""
 
@@ -58,7 +63,26 @@ run-api:
 	uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 
 run-frontend:
-	cd frontend && npm run dev
+	cd frontend && npm install && npm run dev
+
+db-up:
+	docker compose up -d
+	@echo "✅ Database stack started"
+	@echo "   PostgreSQL : localhost:5432"
+	@echo "   MongoDB    : localhost:27017"
+	@echo "   Redis      : localhost:6379"
+	@echo "   ChromaDB   : localhost:8001"
+
+db-down:
+	docker compose down
+	@echo "✅ Database stack stopped"
+
+db-logs:
+	docker compose logs -f
+
+db-reset:
+	docker compose down -v
+	@echo "✅ All database volumes wiped"
 
 dvc-init:
 	@command -v dvc >/dev/null 2>&1 || pip install dvc
