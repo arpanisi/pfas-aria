@@ -85,6 +85,7 @@ make format         # Auto-format
 | 8 | ✅ | FastAPI Backend |
 | 9 | ✅ | React Frontend |
 | 10 | ⬜ | Report Generator |
+| 11 | ⬜ | Deployment and Monitoring |
 
 ---
 
