@@ -263,6 +263,16 @@ class SupervisorAgent:
         latest_score = ps.convergence_scores[-1]
         ps.final_match_score = latest_score
 
+        # Refresh materialized views for dashboard
+        try:
+            import asyncio
+
+            from src.db.postgres import refresh_materialized_views
+
+            asyncio.get_event_loop().run_until_complete(refresh_materialized_views())
+        except Exception:
+            pass  # Non-critical — dashboard falls back to live queries
+
         logger.info(
             f"Round {ps.current_round} complete — "
             f"match={latest_score:.4f}, "
