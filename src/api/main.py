@@ -1,13 +1,13 @@
 """
-FastAPI Application.
-Main entry point for the PFAS-ARIA backend API.
+FastAPI Application — PFAS-ARIA Backend.
+Entry point for the full backend API.
 
-Stages:
-  - CORS configured for React frontend
-  - Clerk JWT auth on all protected routes
-  - REST endpoints for pipeline, results, reports
-  - WebSocket for real-time status
-  - Auto-generated docs at /docs
+Architecture:
+  - Auth: Clerk JWT on all protected routes
+  - DB: PostgreSQL (SQLAlchemy async) + MongoDB (Motor) + Redis
+  - Routes: pipeline, results, corpus, health
+  - WebSocket: real-time pipeline status
+  - Docs: auto-generated at /docs
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import pipeline, results
+from src.api.routes import corpus, health, pipeline, results
 from src.api.websocket import router as ws_router
 from src.utils.logging import get_logger, setup_logging
 from src.utils.paths import ensure_dirs
@@ -32,17 +32,37 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Startup and shutdown logic."""
+    """Startup and shutdown lifecycle."""
     setup_logging()
     ensure_dirs()
-    logger.info(f"PFAS-ARIA API starting — environment: {ENVIRONMENT}")
+    logger.info(f"PFAS-ARIA API starting — {ENVIRONMENT}")
+
+    # Ensure DB tables exist
+    try:
+        from src.db.postgres import create_all_tables, create_materialized_views
+
+        await create_all_tables()
+        await create_materialized_views()
+        logger.info("PostgreSQL tables and materialized views ready")
+    except Exception as e:
+        logger.warning(f"DB setup warning: {e}")
+
+    # Ensure MongoDB indexes
+    try:
+        from src.db.mongodb import ensure_indexes
+
+        await ensure_indexes()
+        logger.info("MongoDB indexes ready")
+    except Exception as e:
+        logger.warning(f"MongoDB setup warning: {e}")
+
     yield
     logger.info("PFAS-ARIA API shutting down")
 
 
 app = FastAPI(
     title="PFAS-ARIA API",
-    description="Autonomous Research Intelligence Agent for PFAS Degradation Analysis",
+    description="Autonomous Research Intelligence Agent — PFAS Degradation Analysis",
     version="0.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -51,13 +71,13 @@ app = FastAPI(
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
 
-allowed_origins = [FRONTEND_URL]
+origins = [FRONTEND_URL]
 if ENVIRONMENT == "development":
-    allowed_origins += ["http://localhost:3000", "http://localhost:5173"]
+    origins += ["http://localhost:3000", "http://localhost:5173"]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -65,23 +85,8 @@ app.add_middleware(
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+app.include_router(health.router)
 app.include_router(pipeline.router)
 app.include_router(results.router)
+app.include_router(corpus.router)
 app.include_router(ws_router)
-
-
-# ── Health check ──────────────────────────────────────────────────────────────
-
-
-@app.get("/", tags=["Health"])
-async def root() -> dict:
-    return {"status": "ok", "service": "pfas-aria-api"}
-
-
-@app.get("/health", tags=["Health"])
-async def health() -> dict:
-    return {
-        "status": "healthy",
-        "environment": ENVIRONMENT,
-        "version": "0.1.0",
-    }

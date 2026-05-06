@@ -1,27 +1,41 @@
 """
 Results Routes.
-Endpoints for retrieving hypotheses, model results, and citations
-for a given pipeline run.
+Endpoints for retrieving hypotheses, model results, validation,
+citations, and convergence history for a given pipeline run.
+Uses Redis cache for expensive aggregation queries.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, text
 
-from src.api.auth import CurrentUser
-from src.api.database import get_db
-from src.api.models.orm import Citation, Hypothesis, ModelResult, Run
+from src.api.deps import CurrentUser, DBSession
+from src.db.orm import Citation, Hypothesis, ModelResult, Run, ValidationResult
+from src.db.redis_client import get_db_query, set_db_query
+from src.utils.logging import get_logger
 
+logger = get_logger(__name__)
 router = APIRouter(prefix="/results", tags=["Results"])
 
 
 # ── Response schemas ──────────────────────────────────────────────────────────
 
 
-class HypothesisResponse(BaseModel):
+class RunSummary(BaseModel):
+    run_id: str
+    run_name: str
+    status: str
+    n_rounds: int
+    final_match_score: float
+    converged: bool
+    outcome_variable: str | None
+    selected_features: list
+    n_hypotheses: int
+
+
+class HypothesisOut(BaseModel):
     id: str
     hypothesis_id: str
     round: int
@@ -30,10 +44,12 @@ class HypothesisResponse(BaseModel):
     primary_variables: list
     model_family: str
     priority_score: float
+    is_refinement: bool
 
 
-class ModelResultResponse(BaseModel):
+class ModelResultOut(BaseModel):
     id: str
+    hypothesis_id: str
     model_type: str
     r_squared: float
     adj_r_squared: float
@@ -41,55 +57,58 @@ class ModelResultResponse(BaseModel):
     coefficients: dict
     p_values: dict
     significant_variables: list
-    validation_passed: bool
     match_score: float
+    validation_passed: bool
 
 
-class CitationResponse(BaseModel):
+class ValidationOut(BaseModel):
+    vif_passed: bool
+    max_vif: float
+    normality_passed: bool
+    shapiro_p: float
+    homoscedasticity_passed: bool
+    bp_p: float
+    anova_passed: bool
+    anova_p: float
+    cv_r2_mean: float
+    effect_size_label: str | None
+    overall_passed: bool
+    pass_rate: float
+
+
+class CitationOut(BaseModel):
     id: str
     source: str
     title: str
     url: str | None
-    similarity_score: float
     year: str | None
+    similarity_score: float
+    variable: str | None
 
 
-class RunSummaryResponse(BaseModel):
-    run_id: str
-    run_name: str
-    status: str
-    n_rounds: int
-    final_match_score: float
-    converged: bool
-    outcome_variable: str | None
+class ConvergencePoint(BaseModel):
+    round: int
+    avg_match_score: float
+    best_r_squared: float
     n_hypotheses: int
-    n_citations: int
+    n_passed: int
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
-@router.get("/{run_id}/summary", response_model=RunSummaryResponse)
-async def get_run_summary(
-    run_id: str,
-    user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-) -> RunSummaryResponse:
-    """Full summary of a completed run."""
+@router.get("/{run_id}/summary", response_model=RunSummary)
+async def get_summary(run_id: str, user: CurrentUser, db: DBSession) -> RunSummary:
     run = await db.get(Run, run_id)
     if not run:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Run {run_id} not found",
-        )
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Run {run_id} not found")
 
-    n_hyp = len(
-        (await db.execute(select(Hypothesis).where(Hypothesis.run_id == run_id)))
-        .scalars()
-        .all()
+    n_hyp_result = await db.execute(
+        select(Hypothesis).where(Hypothesis.run_id == run_id)
     )
+    n_hyp = len(n_hyp_result.scalars().all())
 
-    return RunSummaryResponse(
+    return RunSummary(
         run_id=run.id,
         run_name=run.run_name,
         status=run.status,
@@ -97,19 +116,24 @@ async def get_run_summary(
         final_match_score=run.final_match_score,
         converged=run.converged,
         outcome_variable=run.outcome_variable,
+        selected_features=run.selected_features or [],
         n_hypotheses=n_hyp,
-        n_citations=0,  # TODO: aggregate from citations table
     )
 
 
-@router.get("/{run_id}/hypotheses", response_model=list[HypothesisResponse])
+@router.get("/{run_id}/hypotheses", response_model=list[HypothesisOut])
 async def get_hypotheses(
     run_id: str,
     user: CurrentUser,
+    db: DBSession,
     round_number: int | None = None,
-    db: AsyncSession = Depends(get_db),
-) -> list[HypothesisResponse]:
-    """Get all hypotheses for a run, optionally filtered by round."""
+) -> list[HypothesisOut]:
+    """List hypotheses for a run. Optionally filter by round."""
+    cache_key = f"{run_id}:hypotheses:{round_number}"
+    cached = await get_db_query(cache_key)
+    if cached:
+        return [HypothesisOut(**h) for h in cached]
+
     query = select(Hypothesis).where(Hypothesis.run_id == run_id)
     if round_number is not None:
         query = query.where(Hypothesis.round == round_number)
@@ -118,8 +142,8 @@ async def get_hypotheses(
     result = await db.execute(query)
     hypotheses = result.scalars().all()
 
-    return [
-        HypothesisResponse(
+    out = [
+        HypothesisOut(
             id=h.id,
             hypothesis_id=h.hypothesis_id,
             round=h.round,
@@ -128,18 +152,20 @@ async def get_hypotheses(
             primary_variables=h.primary_variables,
             model_family=h.model_family,
             priority_score=h.priority_score,
+            is_refinement=h.is_refinement,
         )
         for h in hypotheses
     ]
 
+    await set_db_query(cache_key, [o.model_dump() for o in out])
+    return out
 
-@router.get("/{run_id}/models", response_model=list[ModelResultResponse])
+
+@router.get("/{run_id}/models", response_model=list[ModelResultOut])
 async def get_model_results(
-    run_id: str,
-    user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-) -> list[ModelResultResponse]:
-    """Get all model results for a run."""
+    run_id: str, user: CurrentUser, db: DBSession
+) -> list[ModelResultOut]:
+    """All model results for a run, sorted by R²."""
     hyp_ids = (
         (await db.execute(select(Hypothesis.id).where(Hypothesis.run_id == run_id)))
         .scalars()
@@ -150,36 +176,36 @@ async def get_model_results(
         return []
 
     result = await db.execute(
-        select(ModelResult)
+        select(ModelResult, ValidationResult)
+        .outerjoin(ValidationResult, ValidationResult.model_result_id == ModelResult.id)
         .where(ModelResult.hypothesis_id.in_(hyp_ids))
         .order_by(ModelResult.r_squared.desc())
     )
-    models = result.scalars().all()
+    rows = result.all()
 
     return [
-        ModelResultResponse(
-            id=m.id,
-            model_type=m.model_type,
-            r_squared=m.r_squared,
-            adj_r_squared=m.adj_r_squared,
-            n_observations=m.n_observations,
-            coefficients=m.coefficients,
-            p_values=m.p_values,
-            significant_variables=m.significant_variables,
-            validation_passed=m.validation_passed,
-            match_score=m.match_score,
+        ModelResultOut(
+            id=mr.id,
+            hypothesis_id=mr.hypothesis_id,
+            model_type=mr.model_type,
+            r_squared=mr.r_squared,
+            adj_r_squared=mr.adj_r_squared,
+            n_observations=mr.n_observations,
+            coefficients=mr.coefficients,
+            p_values=mr.p_values,
+            significant_variables=mr.significant_variables,
+            match_score=mr.match_score,
+            validation_passed=vr.overall_passed if vr else False,
         )
-        for m in models
+        for mr, vr in rows
     ]
 
 
-@router.get("/{run_id}/citations", response_model=list[CitationResponse])
+@router.get("/{run_id}/citations", response_model=list[CitationOut])
 async def get_citations(
-    run_id: str,
-    user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-) -> list[CitationResponse]:
-    """Get all citations for a run, sorted by similarity score."""
+    run_id: str, user: CurrentUser, db: DBSession
+) -> list[CitationOut]:
+    """All citations for a run, sorted by similarity score."""
     hyp_ids = (
         (await db.execute(select(Hypothesis.id).where(Hypothesis.run_id == run_id)))
         .scalars()
@@ -206,18 +232,92 @@ async def get_citations(
         select(Citation)
         .where(Citation.model_result_id.in_(model_ids))
         .order_by(Citation.similarity_score.desc())
-        .limit(50)
+        .limit(100)
     )
-    citations = result.scalars().all()
 
     return [
-        CitationResponse(
+        CitationOut(
             id=c.id,
             source=c.source,
             title=c.title,
             url=c.url,
-            similarity_score=c.similarity_score,
             year=c.year,
+            similarity_score=c.similarity_score,
+            variable=c.variable,
         )
-        for c in citations
+        for c in result.scalars().all()
+    ]
+
+
+@router.get("/{run_id}/convergence", response_model=list[ConvergencePoint])
+async def get_convergence(
+    run_id: str, user: CurrentUser, db: DBSession
+) -> list[ConvergencePoint]:
+    """
+    Convergence score history per round.
+    Reads from mv_run_convergence materialized view if available,
+    falls back to live query.
+    """
+    try:
+        result = await db.execute(
+            text(
+                "SELECT round, avg_match_score, best_r_squared, "
+                "n_hypotheses, n_passed "
+                "FROM mv_run_convergence WHERE run_id = :run_id "
+                "ORDER BY round"
+            ),
+            {"run_id": run_id},
+        )
+        rows = result.all()
+        if rows:
+            return [
+                ConvergencePoint(
+                    round=r.round,
+                    avg_match_score=r.avg_match_score,
+                    best_r_squared=r.best_r_squared,
+                    n_hypotheses=r.n_hypotheses,
+                    n_passed=r.n_passed,
+                )
+                for r in rows
+            ]
+    except Exception:
+        pass
+
+    # Fallback: live aggregation query
+    hyp_ids = (
+        (await db.execute(select(Hypothesis.id).where(Hypothesis.run_id == run_id)))
+        .scalars()
+        .all()
+    )
+
+    if not hyp_ids:
+        return []
+
+    result = await db.execute(
+        select(Hypothesis.round, ModelResult.r_squared, ModelResult.match_score)
+        .join(ModelResult, ModelResult.hypothesis_id == Hypothesis.id)
+        .where(Hypothesis.run_id == run_id)
+        .order_by(Hypothesis.round)
+    )
+    rows = result.all()
+
+    # Aggregate by round
+    rounds: dict[int, dict] = {}
+    for r in rows:
+        rnd = r.round
+        if rnd not in rounds:
+            rounds[rnd] = {"scores": [], "r2s": [], "count": 0}
+        rounds[rnd]["scores"].append(r.match_score)
+        rounds[rnd]["r2s"].append(r.r_squared)
+        rounds[rnd]["count"] += 1
+
+    return [
+        ConvergencePoint(
+            round=rnd,
+            avg_match_score=sum(v["scores"]) / len(v["scores"]),
+            best_r_squared=max(v["r2s"]),
+            n_hypotheses=v["count"],
+            n_passed=0,
+        )
+        for rnd, v in sorted(rounds.items())
     ]
