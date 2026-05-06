@@ -68,8 +68,8 @@ class Run(Base):
     n_rounds_completed: Mapped[int] = mapped_column(Integer, default=0)
     final_match_score: Mapped[float] = mapped_column(Float, default=0.0)
     converged: Mapped[bool] = mapped_column(Boolean, default=False)
-    stop_reason: Mapped[str] = mapped_column(String(255), nullable=True)
-    error_message: Mapped[str] = mapped_column(Text, nullable=True)
+    stop_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     config_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
 
     data_version: Mapped[DataVersion | None] = relationship(back_populates="runs")
