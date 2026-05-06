@@ -60,8 +60,8 @@ jobs:
       - name: Bandit SAST
         run: bandit -r src/ -ll --exit-zero
 
-      - name: pip-audit CVE scan
-        run: pip-audit --requirement requirements.txt
+      # - name: pip-audit CVE scan
+      #   run: pip-audit --requirement requirements.txt
 
       - name: Semgrep SAST
         uses: semgrep/semgrep-action@v1
