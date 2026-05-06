@@ -82,8 +82,8 @@ make format         # Auto-format
 | 5 | ✅ | Modeling + Validation Engine |
 | 6 | ✅ | Literature Grounding Agent |
 | 7 | ✅ | Supervisor Loop (LangGraph) |
-| 8 | ⬜ | FastAPI Backend |
-| 9 | ⬜ | React Frontend |
+| 8 | ✅ | FastAPI Backend |
+| 9 | ✅ | React Frontend |
 | 10 | ⬜ | Report Generator |
 
 ---
