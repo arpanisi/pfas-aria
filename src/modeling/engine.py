@@ -161,7 +161,9 @@ class ModelingEngine:
         # Require at least one valid primary predictor for hypothesis fit.
         primary_available = [c for c in primary_vars if c in df.columns]
         if not primary_available:
-            raise ModelingError(f"No valid primary variables available for {hypothesis.id}")
+            raise ModelingError(
+                f"No valid primary variables available for {hypothesis.id}"
+            )
 
         # Filter to available columns
         available = [c for c in all_vars if c in df.columns]
