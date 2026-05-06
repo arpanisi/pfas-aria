@@ -1,47 +1,95 @@
-import { NavLink } from "react-router-dom";
-import {
-  Activity,
-  BookOpen,
-  Database,
-  FlaskConical,
-  LayoutDashboard,
-} from "lucide-react";
-import clsx from "clsx";
+import { useCallback } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { useTheme } from "@/store/theme";
+import { useDropzone } from "react-dropzone";
+import toast from "react-hot-toast";
+import { uploadDataset, uploadPaper } from "@/api/endpoints";
 
 const NAV = [
-  { to: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/runs", icon: Activity, label: "Runs" },
-  { to: "/upload", icon: FlaskConical, label: "New Run" },
-  { to: "/corpus", icon: BookOpen, label: "Corpus" },
-  { to: "/data", icon: Database, label: "Data" },
+  { to: "/upload", label: "▶ Run pipeline" },
+  { to: "/runs", label: "📋 Run history" },
+  { to: "/corpus", label: "📚 Corpus" },
 ];
 
 export function Sidebar() {
+  const { dark, toggle } = useTheme();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const onDropData = useCallback(async (files: File[]) => {
+    if (!files[0]) return;
+    try {
+      await uploadDataset(files[0]);
+      toast.success(`${files[0].name} uploaded`);
+      navigate("/upload");
+    } catch {
+      toast.error("Upload failed");
+    }
+  }, [navigate]);
+
+  const onDropCorpus = useCallback(async (files: File[]) => {
+    for (const f of files) {
+      try {
+        await uploadPaper(f);
+        toast.success(`${f.name} added to corpus`);
+      } catch {
+        toast.error(`Failed: ${f.name}`);
+      }
+    }
+  }, []);
+
+  const { getRootProps: getDataProps, getInputProps: getDataInput, isDragActive: dataDrag } =
+    useDropzone({ onDrop: onDropData, accept: { "text/csv": [".csv"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] }, maxFiles: 1 });
+
+  const { getRootProps: getPdfProps, getInputProps: getPdfInput, isDragActive: pdfDrag } =
+    useDropzone({ onDrop: onDropCorpus, accept: { "application/pdf": [".pdf"] } });
+
   return (
     <aside className="sidebar">
-      <div className="sidebar-logo">
-        <span className="logo-text">PFAS</span>
-        <span className="logo-accent">ARIA</span>
+      <div className="sb-logo">
+        <span className="sb-logo-dim">PFAS-</span>
+        <span className="sb-logo-accent">ARIA</span>
       </div>
 
-      <nav className="sidebar-nav">
-        {NAV.map(({ to, icon: Icon, label }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === "/"}
-            className={({ isActive }) =>
-              clsx("nav-item", { "nav-item--active": isActive })
-            }
-          >
-            <Icon size={18} />
-            <span>{label}</span>
-          </NavLink>
-        ))}
-      </nav>
+      <div className="sb-section">Experimental Data</div>
+      <div {...getDataProps()} className={`upload-zone ${dataDrag ? "active" : ""}`}>
+        <input {...getDataInput()} />
+        <div className="uz-icon">⬆</div>
+        <div className="uz-text">Upload dataset</div>
+        <div className="uz-hint">CSV, Excel · up to 100k rows</div>
+      </div>
 
-      <div className="sidebar-footer">
-        <div className="version-badge">v0.1.0</div>
+      <div className="sb-sep" />
+
+      <div className="sb-section">Corpus</div>
+      <div {...getPdfProps()} className={`upload-zone ${pdfDrag ? "active" : ""}`}>
+        <input {...getPdfInput()} />
+        <div className="uz-icon">📄</div>
+        <div className="uz-text">Add papers</div>
+        <div className="uz-hint">PDF · indexed on next run</div>
+      </div>
+
+      <div className="sb-sep" />
+
+      {NAV.map(({ to, label }) => (
+        <div
+          key={to}
+          className={`nav-item ${location.pathname.startsWith(to) ? "active" : ""}`}
+          onClick={() => navigate(to)}
+        >
+          {label}
+        </div>
+      ))}
+
+      <div className="sb-footer">
+        <div className="toggle-row">
+          <span className="toggle-lbl">{dark ? "Dark" : "Light"} mode</span>
+          <label className="toggle-switch">
+            <input type="checkbox" checked={dark} onChange={toggle} />
+            <div className="toggle-track" />
+            <div className="toggle-thumb" />
+          </label>
+        </div>
       </div>
     </aside>
   );

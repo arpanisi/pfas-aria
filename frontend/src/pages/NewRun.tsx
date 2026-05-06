@@ -1,185 +1,164 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useDropzone } from "react-dropzone";
 import toast from "react-hot-toast";
-import { DataUploader, ColumnSelector } from "@/components/upload/DataUploader";
-import { useStartRun } from "@/hooks/usePipeline";
+import { useUploadDataset, useStartRun } from "@/hooks/usePipeline";
 import type { DatasetPreview } from "@/types";
 
 type Step = "upload" | "configure" | "settings";
 
 export function NewRun() {
   const navigate = useNavigate();
-  const { mutateAsync: startRun, isPending } = useStartRun();
+  const { mutateAsync: upload, isPending: uploading } = useUploadDataset();
+  const { mutateAsync: startRun, isPending: launching } = useStartRun();
 
   const [step, setStep] = useState<Step>("upload");
   const [preview, setPreview] = useState<DatasetPreview | null>(null);
-  const [outcomeVariable, setOutcomeVariable] = useState("");
-  const [featureColumns, setFeatureColumns] = useState<string[]>([]);
+  const [outcome, setOutcome] = useState("");
+  const [features, setFeatures] = useState<string[]>([]);
   const [runName, setRunName] = useState("");
   const [maxRounds, setMaxRounds] = useState(10);
-  const [hypothesesPerRound, setHypothesesPerRound] = useState(6);
-  const [convergenceThreshold, setConvergenceThreshold] = useState(0.75);
+  const [hypPerRound, setHypPerRound] = useState(6);
+  const [threshold, setThreshold] = useState(0.75);
 
-  const handlePreview = (p: DatasetPreview) => {
-    setPreview(p);
-    // Auto-select all numeric columns as features
-    const numericCols = p.columns.filter((c) => c.is_numeric).map((c) => c.name);
-    setFeatureColumns(numericCols);
-    setStep("configure");
+  const onDrop = useCallback(async (files: File[]) => {
+    if (!files[0]) return;
+    try {
+      const p = await upload(files[0]);
+      setPreview(p);
+      const nums = p.columns.filter((c) => c.is_numeric).map((c) => c.name);
+      setFeatures(nums);
+      setStep("configure");
+      toast.success(`Loaded ${p.n_rows.toLocaleString()} rows`);
+    } catch { toast.error("Upload failed"); }
+  }, [upload]);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: { "text/csv": [".csv"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"], "text/tab-separated-values": [".tsv"] },
+    maxFiles: 1,
+    disabled: uploading,
+  });
+
+  const toggleFeature = (col: string) => {
+    if (col === outcome) return;
+    setFeatures((f) => f.includes(col) ? f.filter((c) => c !== col) : [...f, col]);
   };
 
   const handleLaunch = async () => {
-    if (!preview || !outcomeVariable || featureColumns.length === 0) {
-      toast.error("Select an outcome variable and at least one feature");
-      return;
-    }
-    if (!runName.trim()) {
-      toast.error("Enter a run name");
-      return;
+    if (!preview || !outcome || !features.length || !runName.trim()) {
+      toast.error("Fill in all required fields"); return;
     }
     try {
       const { run_id } = await startRun({
-        run_name: runName,
-        filename: preview.filename,
-        outcome_variable: outcomeVariable,
-        feature_columns: featureColumns,
-        exclude_columns: [],
-        max_rounds: maxRounds,
-        convergence_threshold: convergenceThreshold,
-        hypotheses_per_round: hypothesesPerRound,
+        run_name: runName, filename: preview.filename,
+        outcome_variable: outcome, feature_columns: features,
+        exclude_columns: [], max_rounds: maxRounds,
+        convergence_threshold: threshold, hypotheses_per_round: hypPerRound,
         strict_validation: false,
       });
       toast.success("Pipeline started!");
       navigate(`/runs/${run_id}`);
-    } catch {
-      toast.error("Failed to start run");
-    }
+    } catch { toast.error("Failed to start run"); }
   };
+
+  const steps: Step[] = ["upload", "configure", "settings"];
 
   return (
     <div className="new-run-page">
-      <header className="page-header">
+      <div className="page-header">
         <h1 className="page-title">New Run</h1>
-        <div className="step-indicator">
-          {["Upload", "Configure", "Settings"].map((s, i) => (
-            <div
-              key={s}
-              className={`step-dot-label ${
-                i === ["upload", "configure", "settings"].indexOf(step)
-                  ? "active"
-                  : i < ["upload", "configure", "settings"].indexOf(step)
-                  ? "done"
-                  : ""
-              }`}
-            >
-              {s}
-            </div>
-          ))}
+        <div className="step-pills">
+          {["Upload", "Configure", "Settings"].map((s, i) => {
+            const key = steps[i];
+            const cur = steps.indexOf(step);
+            return (
+              <div key={s} className={`step-pill ${i === cur ? "active" : i < cur ? "done" : ""}`}>{s}</div>
+            );
+          })}
         </div>
-      </header>
+      </div>
 
-      {step === "upload" && <DataUploader onPreview={handlePreview} />}
+      {step === "upload" && (
+        <div {...getRootProps()} className={`dropzone-large ${isDragActive ? "active" : ""}`}>
+          <input {...getInputProps()} />
+          <div className="dz-icon">⬆</div>
+          <div className="dz-text">{uploading ? "Uploading..." : "Drop your dataset here"}</div>
+          <div className="dz-hint">CSV, TSV, Excel · up to 100k rows</div>
+        </div>
+      )}
 
       {step === "configure" && preview && (
-        <div className="configure-step">
-          <div className="dataset-summary">
+        <div>
+          <div className="dataset-bar">
             <span>{preview.filename}</span>
             <span>{preview.n_rows.toLocaleString()} rows</span>
             <span>{preview.n_cols} columns</span>
+            <span style={{ marginLeft: "auto", color: "var(--text-dim)" }}>
+              {features.length} features selected · outcome: {outcome || "none"}
+            </span>
           </div>
-          <ColumnSelector
-            preview={preview}
-            outcomeVariable={outcomeVariable}
-            featureColumns={featureColumns}
-            onOutcomeChange={setOutcomeVariable}
-            onFeaturesChange={setFeatureColumns}
-          />
-          <div className="step-actions">
-            <button className="btn-secondary" onClick={() => setStep("upload")}>
-              Back
-            </button>
-            <button
-              className="btn-primary"
-              onClick={() => setStep("settings")}
-              disabled={!outcomeVariable || featureColumns.length === 0}
-            >
-              Continue →
-            </button>
+          <div className="col-grid">
+            {preview.columns.map((col) => (
+              <div key={col.name} className="col-card">
+                <div className="col-card-header">
+                  <span className="col-name">{col.name}</span>
+                  <span className={`col-dtype ${col.is_numeric ? "num" : ""}`}>
+                    {col.is_numeric ? "num" : "cat"}
+                  </span>
+                </div>
+                <div className="col-meta">{col.n_unique} unique · {col.missing_pct.toFixed(1)}% missing</div>
+                <div className="col-sample">{col.sample_values.slice(0, 3).map(String).join(", ")}</div>
+                <div className="col-actions">
+                  <button
+                    className={`col-btn outcome ${col.name === outcome ? "active" : ""}`}
+                    onClick={() => setOutcome(col.name)}
+                  >Outcome</button>
+                  <button
+                    className={`col-btn feature ${features.includes(col.name) ? "active" : ""}`}
+                    onClick={() => toggleFeature(col.name)}
+                    disabled={col.name === outcome}
+                  >Feature</button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="step-actions" style={{ marginTop: 16 }}>
+            <button className="btn-secondary" onClick={() => setStep("upload")}>Back</button>
+            <button className="btn-primary" onClick={() => setStep("settings")} disabled={!outcome || !features.length}>Continue →</button>
           </div>
         </div>
       )}
 
       {step === "settings" && (
-        <div className="settings-step">
+        <div>
           <div className="settings-grid">
-            <label className="field">
-              <span>Run Name</span>
-              <input
-                type="text"
-                value={runName}
-                onChange={(e) => setRunName(e.target.value)}
-                placeholder="e.g. PFAS UV study batch 1"
-                className="input"
-              />
-            </label>
-            <label className="field">
-              <span>Max Rounds</span>
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={maxRounds}
-                onChange={(e) => setMaxRounds(Number(e.target.value))}
-                className="input"
-              />
-            </label>
-            <label className="field">
-              <span>Hypotheses per Round</span>
-              <input
-                type="number"
-                min={2}
-                max={20}
-                value={hypothesesPerRound}
-                onChange={(e) => setHypothesesPerRound(Number(e.target.value))}
-                className="input"
-              />
-            </label>
-            <label className="field">
-              <span>Convergence Threshold</span>
-              <input
-                type="number"
-                min={0.5}
-                max={1.0}
-                step={0.05}
-                value={convergenceThreshold}
-                onChange={(e) => setConvergenceThreshold(Number(e.target.value))}
-                className="input"
-              />
-            </label>
+            <div className="field">
+              <label>Run Name</label>
+              <input className="input" value={runName} onChange={(e) => setRunName(e.target.value)} placeholder="e.g. PFAS UV Batch 1" />
+            </div>
+            <div className="field">
+              <label>Max Rounds</label>
+              <input className="input" type="number" min={1} max={20} value={maxRounds} onChange={(e) => setMaxRounds(Number(e.target.value))} />
+            </div>
+            <div className="field">
+              <label>Hypotheses per Round</label>
+              <input className="input" type="number" min={2} max={20} value={hypPerRound} onChange={(e) => setHypPerRound(Number(e.target.value))} />
+            </div>
+            <div className="field">
+              <label>Convergence Threshold</label>
+              <input className="input" type="number" min={0.5} max={1.0} step={0.05} value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} />
+            </div>
           </div>
-
           <div className="run-summary-box">
-            <p>
-              <strong>Outcome:</strong> {outcomeVariable}
-            </p>
-            <p>
-              <strong>Features:</strong> {featureColumns.length} columns
-            </p>
-            <p>
-              <strong>Dataset:</strong> {preview?.filename}
-            </p>
+            <span><strong>Outcome:</strong> {outcome}</span>
+            <span><strong>Features:</strong> {features.length} columns selected</span>
+            <span><strong>Dataset:</strong> {preview?.filename}</span>
           </div>
-
           <div className="step-actions">
-            <button className="btn-secondary" onClick={() => setStep("configure")}>
-              Back
-            </button>
-            <button
-              className="btn-primary btn-launch"
-              onClick={handleLaunch}
-              disabled={isPending || !runName.trim()}
-            >
-              {isPending ? "Launching..." : "Launch Pipeline →"}
+            <button className="btn-secondary" onClick={() => setStep("configure")}>Back</button>
+            <button className="btn-primary" onClick={handleLaunch} disabled={launching || !runName.trim()}>
+              {launching ? "Launching..." : "Launch Pipeline →"}
             </button>
           </div>
         </div>

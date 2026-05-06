@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { ClerkProvider, SignIn, SignedIn, SignedOut } from "@clerk/clerk-react";
@@ -10,39 +10,35 @@ import { Dashboard } from "@/pages/Dashboard";
 import { NewRun } from "@/pages/NewRun";
 import { RunHistory } from "@/pages/RunHistory";
 import { CorpusPage } from "@/pages/CorpusPage";
+import { useTheme } from "@/store/theme";
 
 import "./index.css";
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string;
 
 const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      retry: 1,
-    },
-  },
+  defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
 });
+
+function ThemeInit() {
+  const { dark } = useTheme();
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+  }, [dark]);
+  return null;
+}
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ClerkProvider publishableKey={CLERK_KEY}>
       <QueryClientProvider client={queryClient}>
+        <ThemeInit />
         <BrowserRouter>
           <SignedOut>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                height: "100vh",
-                background: "var(--bg)",
-              }}
-            >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "var(--bg)" }}>
               <SignIn routing="hash" />
             </div>
           </SignedOut>
-
           <SignedIn>
             <Routes>
               <Route element={<AppLayout />}>
@@ -55,16 +51,12 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             </Routes>
           </SignedIn>
         </BrowserRouter>
-
         <Toaster
           position="bottom-right"
           toastOptions={{
             style: {
-              background: "var(--surface)",
-              color: "var(--text)",
-              border: "1px solid var(--border)",
-              fontFamily: "var(--font-sans)",
-              fontSize: "13px",
+              background: "var(--surface)", color: "var(--text)",
+              border: "1px solid var(--border)", fontFamily: "var(--font-sans)", fontSize: "13px",
             },
           }}
         />
