@@ -8,6 +8,7 @@ Uses Redis cache for expensive aggregation queries.
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select, text
 
@@ -321,3 +322,42 @@ async def get_convergence(
         )
         for rnd, v in sorted(rounds.items())
     ]
+
+
+# ── Report download ───────────────────────────────────────────────────────────
+
+
+@router.get("/{run_id}/report/markdown")
+async def download_markdown_report(
+    run_id: str,
+    user: CurrentUser,
+) -> object:
+    """Download the Markdown convergence report for a run."""
+    from src.utils.paths import REPORTS_DIR
+
+    path = REPORTS_DIR / f"{run_id}_report.md"
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not generated yet")
+    return FileResponse(
+        path=str(path),
+        media_type="text/markdown",
+        filename=f"pfas_aria_{run_id}_report.md",
+    )
+
+
+@router.get("/{run_id}/report/pdf")
+async def download_pdf_report(
+    run_id: str,
+    user: CurrentUser,
+) -> object:
+    """Download the PDF convergence report for a run."""
+    from src.utils.paths import REPORTS_DIR
+
+    path = REPORTS_DIR / f"{run_id}_report.pdf"
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "PDF report not generated yet")
+    return FileResponse(
+        path=str(path),
+        media_type="application/pdf",
+        filename=f"pfas_aria_{run_id}_report.pdf",
+    )

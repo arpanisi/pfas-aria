@@ -12,6 +12,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
 PROCESSED_DIR = DATA_DIR / "processed"
 CORPUS_DIR = DATA_DIR / "corpus"
+REPORTS_DIR = DATA_DIR / "outputs" / "reports"
 OUTPUTS_DIR = DATA_DIR / "outputs"
 
 CONFIGS_DIR = PROJECT_ROOT / "configs"

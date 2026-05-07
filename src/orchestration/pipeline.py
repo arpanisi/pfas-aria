@@ -48,6 +48,18 @@ def run_pipeline(
 
     convergence_report = ConvergenceJudge().evaluate(final_state)
 
+    # Generate report after convergence
+    try:
+        from src.reporting.generator import generate_report
+
+        md_path, pdf_path = generate_report(final_state, convergence_report)
+        final_state.final_report_path = str(md_path)
+        logger.info(f"Report generated: {md_path}")
+        if pdf_path:
+            logger.info(f"PDF generated: {pdf_path}")
+    except Exception as e:
+        logger.warning(f"Report generation failed (non-fatal): {e}")
+
     logger.info(
         f"Pipeline complete — "
         f"{'CONVERGED' if convergence_report.converged else 'MAX ROUNDS'} "
