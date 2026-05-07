@@ -59,6 +59,9 @@ test-cov:
 run-pipeline:
 	python -m src.orchestration.pipeline
 
+run-worker:
+	arq src.queue.worker.WorkerSettings
+
 run-api:
 	uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 
