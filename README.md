@@ -84,7 +84,7 @@ make format         # Auto-format
 | 7 | ✅ | Supervisor Loop (LangGraph) |
 | 8 | ✅ | FastAPI Backend |
 | 9 | ✅ | React Frontend |
-| 10 | ⬜ | Report Generator |
+| 10 | ✅ | Report Generator |
 | 11 | ⬜ | Deployment and Monitoring |
 
 ---
