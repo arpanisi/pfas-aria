@@ -5,7 +5,7 @@
 
 ![PFAS-ARIA System Overview](docs/aria.png)
 
-PFAS-ARIA is an autonomous multi-agent system that ingests experimental PFAS degradation data and a corpus of scientific papers, then independently discovers data regimes, generates statistical hypotheses, runs and validates models, and grounds findings in open literature — stopping only when results converge with published science.
+PFAS-ARIA is an autonomous multi-agent system designed to explore how PFAS (“forever chemicals”) — highly persistent environmental pollutants of global concern linked to serious health risks — may degrade under specific conditions. By combining experimental datasets with scientific literature, the system generates and validates over 100+ hypotheses, tests statistical models, and iteratively refining them against published and preprinted research to identify plausible degradation pathways.
 
 ---
 
