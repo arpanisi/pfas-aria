@@ -54,7 +54,6 @@ services:
   - type: web
     name: pfas-aria-frontend
     runtime: static
-    plan: free
     branch: main
     rootDir: frontend
     buildCommand: npm install && npm run build
