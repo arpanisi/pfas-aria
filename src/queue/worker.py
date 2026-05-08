@@ -111,11 +111,19 @@ async def _run_pipeline_in_executor(run_name: str) -> tuple:
     return await loop.run_in_executor(None, lambda: run_pipeline(run_name=run_name))
 
 
+def get_redis_settings() -> Any:
+    """Get Redis settings from environment variable."""
+    from arq.connections import RedisSettings
+
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    return RedisSettings.from_dsn(redis_url)
+
+
 class WorkerSettings:
     """ARQ worker configuration."""
 
     functions = [run_pipeline_job]
-    redis_settings = None  # set from REDIS_URL env var at startup
+    redis_settings = get_redis_settings()  # set from REDIS_URL env var at startup
     max_jobs = 4  # concurrent pipeline runs
     job_timeout = 7200  # 2 hours max per run
     keep_result = 3600  # keep result for 1 hour
