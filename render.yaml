@@ -3,7 +3,6 @@ services:
     name: pfas-aria-api
     runtime: docker
     plan: starter
-    region: oregon
     branch: main
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
