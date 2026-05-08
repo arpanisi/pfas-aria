@@ -112,8 +112,9 @@ async def _run_pipeline_in_executor(run_name: str) -> tuple:
 
 
 def get_redis_settings() -> Any:
-
+    """Get Redis settings from environment variable."""
     from arq.connections import RedisSettings
+
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     return RedisSettings.from_dsn(redis_url)
 
