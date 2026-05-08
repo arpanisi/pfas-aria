@@ -111,6 +111,13 @@ async def _run_pipeline_in_executor(run_name: str) -> tuple:
     return await loop.run_in_executor(None, lambda: run_pipeline(run_name=run_name))
 
 
+def get_redis_settings() -> Any:
+
+    from arq.connections import RedisSettings
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    return RedisSettings.from_dsn(redis_url)
+
+
 class WorkerSettings:
     """ARQ worker configuration."""
 
