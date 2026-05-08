@@ -3,6 +3,7 @@ services:
     name: pfas-aria-api
     runtime: docker
     plan: starter
+    region: oregon
     branch: main
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
@@ -54,7 +55,6 @@ services:
     name: pfas-aria-frontend
     runtime: static
     plan: free
-    region: oregon
     branch: main
     rootDir: frontend
     buildCommand: npm install && npm run build
