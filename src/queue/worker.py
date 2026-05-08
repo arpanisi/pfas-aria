@@ -115,7 +115,7 @@ class WorkerSettings:
     """ARQ worker configuration."""
 
     functions = [run_pipeline_job]
-    redis_settings = None  # set from REDIS_URL env var at startup
+    redis_settings = get_redis_settings()  # set from REDIS_URL env var at startup
     max_jobs = 4  # concurrent pipeline runs
     job_timeout = 7200  # 2 hours max per run
     keep_result = 3600  # keep result for 1 hour

@@ -10,14 +10,7 @@ export const apiClient = axios.create({
 // Inject Clerk token on every request
 apiClient.interceptors.request.use(async (config) => {
   try {
-    const { getToken } = await import("@clerk/clerk-react").then(
-      (m) => m.useAuth()
-    );
-    // Note: useAuth() is called in components — token injected via store
-    const token = sessionStorage.getItem("aria_token");
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
+    delete config.headers.Authorization;
   } catch {
     // No token — public route
   }
