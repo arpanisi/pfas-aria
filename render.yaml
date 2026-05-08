@@ -55,7 +55,6 @@ services:
     name: pfas-aria-frontend
     runtime: static
     plan: free
-    region: oregon
     branch: main
     rootDir: frontend
     buildCommand: npm install && npm run build
