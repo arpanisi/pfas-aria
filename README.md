@@ -2,6 +2,7 @@
 ### Autonomous Research Intelligence Agent for PFAS Degradation Analysis
 
 [![Continuous Integration](https://github.com/arpanisi/pfas-aria/actions/workflows/ci.yml/badge.svg)](https://github.com/arpanisi/pfas-aria/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/arpanisi/pfas-aria/branch/main/graph/badge.svg)](https://codecov.io/gh/arpanisi/pfas-aria)
 
 PFAS-ARIA is an autonomous multi-agent system designed to explore how PFAS (“forever chemicals”) — highly persistent environmental pollutants of global concern linked to serious health risks — may degrade under specific conditions. By combining experimental datasets with scientific literature, the system generates and validates over 100+ hypotheses, tests statistical models, and iteratively refining them against published and preprinted research to identify plausible degradation pathways.
 
