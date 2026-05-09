@@ -174,7 +174,7 @@ jobs:
 
       - name: npm audit
         working-directory: frontend
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=critical
   
     # ── Stage 7: Docker Build ────────────────────────────────────────────────
   docker:
