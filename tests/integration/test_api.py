@@ -6,7 +6,6 @@ before they hit Render.
 
 from __future__ import annotations
 
-import pytest
 from fastapi.testclient import TestClient
 
 from src.api.main import app
@@ -17,6 +16,7 @@ FRONTEND_ORIGIN = "https://pfas-aria-frontend.onrender.com"
 
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
+
 
 class TestCORS:
     def test_cors_allowed_for_frontend(self):
@@ -39,6 +39,7 @@ class TestCORS:
 
 
 # ── Routes exist (not 404) ────────────────────────────────────────────────────
+
 
 class TestRoutesExist:
     """
@@ -72,6 +73,7 @@ class TestRoutesExist:
 
 
 # ── Response contracts ────────────────────────────────────────────────────────
+
 
 class TestHealthContract:
     def test_health_returns_expected_fields(self):
