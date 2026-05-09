@@ -70,8 +70,10 @@ app = FastAPI(
 )
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
+# FRONTEND_URL is set per-platform in environment variables (e.g. render.yaml).
+# Security is handled by Clerk JWT, not origin filtering.
 
-origins = [FRONTEND_URL]
+origins = [FRONTEND_URL.rstrip("/")]
 if ENVIRONMENT == "development":
     origins += ["http://localhost:3000", "http://localhost:5173"]
 
@@ -80,7 +82,7 @@ app.add_middleware(
     allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 # ── Routes ────────────────────────────────────────────────────────────────────
