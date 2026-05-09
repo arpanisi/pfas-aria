@@ -120,6 +120,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Check FastAPI app loads
+        run: python -c "from src.api.main import app; print('FastAPI app loaded OK')"
+
       - name: Run tests with coverage
         run: pytest tests/ -v --tb=short --cov=src --cov-report=xml
 
