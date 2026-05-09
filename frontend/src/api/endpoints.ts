@@ -16,7 +16,7 @@ import type {
 export const uploadDataset = async (file: File): Promise<DatasetPreview> => {
   const formData = new FormData();
   formData.append("file", file);
-  const { data } = await apiClient.post("/v1/pipeline/upload", formData, {
+  const { data } = await apiClient.post("/pipeline/upload", formData, {
     headers: { "Content-Type": "multipart/form-data" },
   });
   return data;
@@ -25,17 +25,17 @@ export const uploadDataset = async (file: File): Promise<DatasetPreview> => {
 export const startRun = async (
   config: RunConfig
 ): Promise<{ run_id: string; status: string }> => {
-  const { data } = await apiClient.post("/v1/pipeline/run", config);
+  const { data } = await apiClient.post("/pipeline/run", config);
   return data;
 };
 
 export const getRunStatus = async (runId: string): Promise<RunStatus> => {
-  const { data } = await apiClient.get(`/v1/pipeline/status/${runId}`);
+  const { data } = await apiClient.get(`/pipeline/status/${runId}`);
   return data;
 };
 
 export const listRuns = async (): Promise<RunStatus[]> => {
-  const { data } = await apiClient.get("/v1/pipeline/runs");
+  const { data } = await apiClient.get("/pipeline/runs");
   return data;
 };
 
