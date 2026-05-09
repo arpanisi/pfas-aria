@@ -32,7 +32,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY src/ ./src/
 COPY configs/ ./configs/
 COPY alembic/ ./alembic/
-COPY alembic.ini ./alembic.ini
+# COPY alembic.ini ./alembic.ini
 
 # Create data directories
 RUN mkdir -p data/raw data/corpus data/processed data/outputs/logs \
