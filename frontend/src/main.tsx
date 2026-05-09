@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { ClerkProvider, SignIn, SignedIn, SignedOut } from "@clerk/clerk-react";
+import { ClerkProvider, SignIn, SignedIn, SignedOut, useAuth } from "@clerk/clerk-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "react-hot-toast";
 
@@ -11,6 +11,7 @@ import { NewRun } from "@/pages/NewRun";
 import { RunHistory } from "@/pages/RunHistory";
 import { CorpusPage } from "@/pages/CorpusPage";
 import { useTheme } from "@/store/theme";
+import { setAuthToken } from "@/api/client";
 
 import "./index.css";
 
@@ -28,6 +29,14 @@ function ThemeInit() {
   return null;
 }
 
+function AuthSetup() {
+  const { getToken } = useAuth();
+  useEffect(() => {
+    setAuthToken(() => getToken());
+  }, [getToken]);
+  return null;
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ClerkProvider publishableKey={CLERK_KEY}>
@@ -40,6 +49,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             </div>
           </SignedOut>
           <SignedIn>
+            <AuthSetup />
             <Routes>
               <Route element={<AppLayout />}>
                 <Route index element={<Navigate to="/runs" replace />} />
