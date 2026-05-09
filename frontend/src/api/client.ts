@@ -7,8 +7,14 @@ export const apiClient = axios.create({
   timeout: 30000,
 });
 
+let authInterceptor: number | null = null;
+
 export function setAuthToken(getToken: () => Promise<string | null>) {
-  apiClient.interceptors.request.use(async (config) => {
+  // Remove previous interceptor to avoid stacking
+  if (authInterceptor !== null) {
+    apiClient.interceptors.request.eject(authInterceptor);
+  }
+  authInterceptor = apiClient.interceptors.request.use(async (config) => {
     const token = await getToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -21,7 +27,8 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      window.location.href = "/sign-in";
+      // Don't redirect — let Clerk handle auth state
+      console.warn("401 Unauthorized — token may be expired");
     }
     return Promise.reject(error);
   }
