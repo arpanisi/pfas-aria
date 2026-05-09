@@ -19,6 +19,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 CLERK_PUBLISHABLE_KEY = os.getenv("CLERK_PUBLISHABLE_KEY", "")
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
 
+
 # Derived from publishable key: pk_test_xxxx or pk_live_xxxx
 # The frontend API is encoded in the publishable key after the prefix
 def _get_jwks_url() -> str:
