@@ -6,13 +6,16 @@ before they hit Render.
 
 from __future__ import annotations
 
+import os
+
 from fastapi.testclient import TestClient
 
 from src.api.main import app
 
 client = TestClient(app)
 
-FRONTEND_ORIGIN = "https://pfas-aria-frontend.onrender.com"
+# Use the same origin that's allowed in the current environment
+FRONTEND_ORIGIN = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
 
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
@@ -67,8 +70,25 @@ class TestRoutesExist:
         response = client.delete("/corpus/some-id")
         assert response.status_code != 404
 
-    def test_results_exists(self):
-        response = client.get("/results")
+    def test_results_summary_exists(self):
+        # results router has no root — all routes need a run_id
+        response = client.get("/results/some-run-id/summary")
+        assert response.status_code != 404
+
+    def test_results_hypotheses_exists(self):
+        response = client.get("/results/some-run-id/hypotheses")
+        assert response.status_code != 404
+
+    def test_results_models_exists(self):
+        response = client.get("/results/some-run-id/models")
+        assert response.status_code != 404
+
+    def test_results_citations_exists(self):
+        response = client.get("/results/some-run-id/citations")
+        assert response.status_code != 404
+
+    def test_results_convergence_exists(self):
+        response = client.get("/results/some-run-id/convergence")
         assert response.status_code != 404
 
 
