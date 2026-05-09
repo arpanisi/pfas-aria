@@ -91,7 +91,11 @@ async def upload_paper(
     }
 
 
-@router.delete("/{paper_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+@router.delete(
+    "/{paper_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 async def delete_paper(paper_id: str, user: CurrentUser, db: DBSession) -> None:
     """Remove a paper from the corpus registry and delete the PDF."""
     paper = await db.get(Paper, paper_id)
