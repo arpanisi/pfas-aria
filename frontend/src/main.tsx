@@ -59,7 +59,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
                 background: "var(--bg)",
               }}
             >
-              <SignIn routing="hash" />
+              <SignIn />
             </div>
           </SignedOut>
           <SignedIn>
@@ -67,10 +67,12 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Routes>
               <Route element={<AppLayout />}>
                 <Route index element={<Navigate to="/runs" replace />} />
+                <Route path="/sign-in" element={<Navigate to="/runs" replace />} />
                 <Route path="/runs" element={<RunHistory />} />
                 <Route path="/runs/:runId" element={<Dashboard />} />
                 <Route path="/upload" element={<NewRun />} />
                 <Route path="/corpus" element={<CorpusPage />} />
+                <Route path="*" element={<Navigate to="/runs" replace />} />
               </Route>
             </Routes>
           </SignedIn>
