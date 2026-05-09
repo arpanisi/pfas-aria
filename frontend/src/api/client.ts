@@ -7,15 +7,15 @@ export const apiClient = axios.create({
   timeout: 30000,
 });
 
-// Inject Clerk token on every request
-apiClient.interceptors.request.use(async (config) => {
-  try {
-    delete config.headers.Authorization;
-  } catch {
-    // No token — public route
-  }
-  return config;
-});
+export function setAuthToken(getToken: () => Promise<string | null>) {
+  apiClient.interceptors.request.use(async (config) => {
+    const token = await getToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  });
+}
 
 apiClient.interceptors.response.use(
   (response) => response,
