@@ -1,7 +1,13 @@
 import React, { useEffect } from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { ClerkProvider, SignIn, SignedIn, SignedOut, useAuth } from "@clerk/clerk-react";
+import {
+  ClerkProvider,
+  SignIn,
+  SignedIn,
+  SignedOut,
+  useAuth,
+} from "@clerk/clerk-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "react-hot-toast";
 
@@ -44,7 +50,15 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <ThemeInit />
         <BrowserRouter>
           <SignedOut>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "var(--bg)" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                height: "100vh",
+                background: "var(--bg)",
+              }}
+            >
               <SignIn routing="hash" />
             </div>
           </SignedOut>
@@ -65,8 +79,11 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           position="bottom-right"
           toastOptions={{
             style: {
-              background: "var(--surface)", color: "var(--text)",
-              border: "1px solid var(--border)", fontFamily: "var(--font-sans)", fontSize: "13px",
+              background: "var(--surface)",
+              color: "var(--text)",
+              border: "1px solid var(--border)",
+              fontFamily: "var(--font-sans)",
+              fontSize: "13px",
             },
           }}
         />
