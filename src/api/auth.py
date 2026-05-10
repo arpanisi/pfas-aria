@@ -6,6 +6,7 @@ Public endpoints (health, docs) are excluded.
 
 from __future__ import annotations
 
+import base64
 import os
 from typing import Annotated
 
@@ -20,16 +21,29 @@ CLERK_PUBLISHABLE_KEY = os.getenv("CLERK_PUBLISHABLE_KEY", "")
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
 
 
-# Derived from publishable key: pk_test_xxxx or pk_live_xxxx
-# The frontend API is encoded in the publishable key after the prefix
 def _get_jwks_url() -> str:
-    """Derive JWKS URL from the Clerk secret key."""
-    # Extract the instance domain from the secret key
-    # sk_test_xxx → instance is embedded in JWT issuer
-    # Use Clerk's standard JWKS endpoint
-    if not CLERK_SECRET_KEY:
-        raise ValueError("CLERK_SECRET_KEY is not set")
-    return "https://api.clerk.com/v1/jwks"
+    """
+    Derive the JWKS URL from the Clerk publishable key.
+    Publishable key format: pk_test_<base64-encoded-frontend-api>$
+    Decoding gives the frontend API domain e.g. super-penguin-94.clerk.accounts.dev
+    """
+    if not CLERK_PUBLISHABLE_KEY:
+        raise ValueError("CLERK_PUBLISHABLE_KEY is not set")
+
+    # Strip the prefix
+    raw = CLERK_PUBLISHABLE_KEY
+    for prefix in ("pk_live_", "pk_test_"):
+        if raw.startswith(prefix):
+            raw = raw[len(prefix) :]
+            break
+
+    # Add base64 padding
+    raw += "=" * (4 - len(raw) % 4)
+
+    # Decode and strip trailing $
+    frontend_api = base64.b64decode(raw).decode("utf-8").strip("$").strip()
+
+    return f"https://{frontend_api}/.well-known/jwks.json"
 
 
 # Cache the JWKS client
@@ -39,10 +53,8 @@ _jwks_client: PyJWKClient | None = None
 def _get_jwks_client() -> PyJWKClient:
     global _jwks_client
     if _jwks_client is None:
-        _jwks_client = PyJWKClient(
-            _get_jwks_url(),
-            headers={"Authorization": f"Bearer {CLERK_SECRET_KEY}"},
-        )
+        jwks_url = _get_jwks_url()
+        _jwks_client = PyJWKClient(jwks_url)
     return _jwks_client
 
 
