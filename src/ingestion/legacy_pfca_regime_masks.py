@@ -2,8 +2,9 @@
 PFAS notebook regime assignment.
 
 Notebook cell structure: mg/L lists from input/output columns, ``"-"`` → NaN → 0
-on those mg/L inputs, then drivers ``pfas_in_cols[0]``, ``[4]``, ``[5]``, ``pfca_rest``,
-``X`` / ``mask``, ``r1``–``r5``.
+on those mg/L inputs, then PFOA / PFBA / PFBS driver columns (resolved by name with
+legacy index fallbacks inside :func:`detect_pfoa_pfba_pfbs_driver_columns`), species
+``mask``, and ``r1``–``r5``.
 
 Normalized API column names use ``mg/l`` / ``pfbs``; helpers mirror the notebook's
 ``'mg/L'`` / ``'PFBS'`` substring checks including those spellings.
@@ -16,6 +17,11 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+
+from src.ingestion.unified_experimental_sheet import (
+    detect_pfoa_pfba_pfbs_driver_columns,
+    select_regime_pfas_input_mg_l_columns,
+)
 
 
 def _notebook_mg_l(col: str) -> bool:
@@ -75,6 +81,18 @@ def assign_pfca_regime_masks_from_column_lists(
     )
 
     pfas_in_cols = [col for col in input_cols if _notebook_mg_l(col)]
+    _, pfas_for_mask = select_regime_pfas_input_mg_l_columns(
+        input_cols, warnings=warnings
+    )
+    if pfas_for_mask:
+        pfas_in_cols = list(pfas_for_mask)
+
+    if len(pfas_in_cols) < 3:
+        raise ValueError(
+            "Need at least 3 mg/L input columns for legacy regime masks "
+            f"(found {len(pfas_in_cols)})."
+        )
+
     pfas_out_cols = [
         col
         for col in output_cols
@@ -92,19 +110,27 @@ def assign_pfca_regime_masks_from_column_lists(
     pfas_input_mg_l_cols = list(pfas_in_cols)
     pfas_cols = list(pfas_in_cols)
 
-    pfoa_in = pfas_in_cols[0]
-    pfbs_in = pfas_in_cols[4]
-    pfba_in = pfas_in_cols[5]
-    pfca_rest = [c for c in pfas_in_cols if c not in [pfbs_in]]
-    _ = pfca_rest
+    try:
+        pfoa_in, pfba_in, pfbs_in = detect_pfoa_pfba_pfbs_driver_columns(
+            pfas_in_cols, warnings=warnings
+        )
+    except ValueError as exc:
+        if len(pfas_in_cols) < 6:
+            raise ValueError(
+                "Legacy regime masks require at least 6 mg/L independent columns "
+                "when PFOA / PFBA / PFBS cannot be resolved by name "
+                f"(found {len(pfas_in_cols)} mg/L inputs)."
+            ) from exc
+        raise
 
     print("[PFAS regime] pfas_in_cols:", pfas_in_cols, flush=True)
     print(
-        "[PFAS regime] pfoa_in=[0]",
+        "[PFAS regime] drivers:",
+        "pfoa=",
         pfoa_in,
-        "pfbs_in=[4]",
+        "pfbs=",
         pfbs_in,
-        "pfba_in=[5]",
+        "pfba=",
         pfba_in,
         flush=True,
     )
