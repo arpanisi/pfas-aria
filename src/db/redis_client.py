@@ -113,6 +113,12 @@ async def get_run_status(run_id: str) -> dict | None:
     return json.loads(data) if data else None
 
 
+async def delete_run_status(run_id: str) -> None:
+    """Remove cached status when a run is deleted."""
+    r = get_redis()
+    await r.delete(f"run:{run_id}:status")
+
+
 # ── Utilities ─────────────────────────────────────────────────────────────────
 
 

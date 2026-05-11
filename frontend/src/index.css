@@ -638,7 +638,37 @@ a.btn-primary {
 .run-card-top { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .run-card-name { font-weight: 600; }
 .run-card-id { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); margin-left: auto; }
-.run-card-meta { display: flex; gap: 14px; font-size: 11px; color: var(--text-muted); }
+.run-card-meta { display: flex; gap: 14px; font-size: 11px; color: var(--text-muted); flex-wrap: wrap; align-items: center; }
+.run-card-row { display: flex; align-items: flex-start; gap: 12px; width: 100%; }
+.run-card-main { flex: 1; min-width: 0; }
+.run-card-actions { flex-shrink: 0; display: flex; align-items: flex-start; }
+.run-card-delete {
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.run-card-delete:hover {
+  color: var(--danger, #e85d5d);
+  border-color: color-mix(in srgb, var(--danger, #e85d5d) 40%, var(--border));
+  background: color-mix(in srgb, var(--danger, #e85d5d) 8%, transparent);
+}
+.run-kind-pill {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.run-kind-pill.screening { border-color: var(--accent-muted); color: var(--accent); }
 .status-tag { font-family: var(--font-mono); font-size: 9px; padding: 1px 7px; border-radius: 20px; background: var(--surface-2); }
 .status-tag.converged { color: var(--green); }
 .status-tag.running { color: var(--accent); }

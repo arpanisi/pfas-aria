@@ -2,7 +2,7 @@
 Corpus Processor.
 Incremental PDF processing pipeline.
 Only processes PDFs not already in the paper registry.
-Stores chunks in MongoDB, embeddings in ChromaDB, metadata in PostgreSQL.
+Stores chunks in MongoDB (embeddings added on first RAG sync), metadata in PostgreSQL.
 
 Handles corpora from 50 to 10,000+ papers efficiently.
 """
@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 
 @dataclass
 class ProcessedChunk:
-    """A single text chunk ready for MongoDB + ChromaDB."""
+    """A single text chunk ready for MongoDB (vectors added during RAG indexing)."""
 
     doc_id: str
     paper_filename: str
@@ -55,7 +55,7 @@ class ProcessingResult:
 
 class CorpusProcessor:
     """
-    Processes PDFs into chunks and stores them across MongoDB + ChromaDB.
+    Processes PDFs into chunks and stores them in MongoDB + PostgreSQL registry.
     Skips already-processed papers via the registry.
     """
 

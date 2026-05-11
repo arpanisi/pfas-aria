@@ -1,7 +1,6 @@
 """
 RAG Pipeline.
-Orchestrates the full build: load corpus → embed → store in ChromaDB.
-Called once at startup. Subsequent runs skip already-indexed documents.
+Ensures MongoDB chunk embeddings exist, then exposes the Retriever.
 """
 
 from __future__ import annotations
@@ -28,60 +27,43 @@ class RAGPipeline:
 
     def build(self, force_rebuild: bool = False) -> Retriever:
         """
-        Full pipeline:
-          1. Load and parse PDFs
-          2. Load embedding model
-          3. Embed and index into ChromaDB
-          4. Return ready Retriever
-
-        If the store is already built and force_rebuild=False,
-        skips embedding and returns immediately.
+        1. Open Mongo-backed vector store
+        2. If already embedded and not forcing rebuild, reuse
+        3. Otherwise embed all chunks missing vectors (upload path writes text only)
+        4. Return Retriever
         """
         logger.info("=== RAG Pipeline: Starting ===")
 
-        # Step 1: Initialize vector store
         self._vector_store = VectorStore()
 
-        if self._vector_store.is_built() and not force_rebuild:
-            logger.info(
-                f"Vector store already contains "
-                f"{self._vector_store.count()} chunks — skipping rebuild"
-            )
-            self._retriever = get_retriever(self._vector_store)
-            logger.info("=== RAG Pipeline: Ready (from cache) ===")
-            return self._retriever
-
-        # Step 2: Load corpus
-        logger.info("Loading corpus...")
-        loader = CorpusLoader()
-        self._corpus_bundle = loader.load()
-
-        logger.info(
-            f"Corpus loaded: {self._corpus_bundle.n_papers} papers, "
-            f"{self._corpus_bundle.n_chunks} chunks"
-        )
-
-        if self._corpus_bundle.failed_files:
-            logger.warning(f"Failed to parse: {self._corpus_bundle.failed_files}")
-
-        # Step 3: Ensure embedder is warm
         logger.info("Warming up embedding model...")
         get_embedder()
 
-        # Step 4: Build vector store
-        logger.info("Building vector index...")
-        self._vector_store.build(
-            documents=self._corpus_bundle.documents,
-            force_rebuild=force_rebuild,
-        )
+        # Incremental: only chunks missing ``embedding`` or wrong model; optional full rebuild
+        logger.info("Syncing Mongo chunk embeddings...")
+        self._vector_store.build(force_rebuild=force_rebuild)
 
-        # Step 5: Initialize retriever
+        if not self._vector_store.is_built():
+            logger.warning(
+                "No embedded chunks in Mongo — upload PDFs via the corpus API first."
+            )
+
         self._retriever = get_retriever(self._vector_store)
+        self._warm_corpus_bundle_for_summary()
 
         logger.info(
-            f"=== RAG Pipeline: Ready — {self._vector_store.count()} chunks indexed ==="
+            "=== RAG Pipeline: Ready — %s embedded chunks ===",
+            self._vector_store.count(),
         )
         return self._retriever
+
+    def _warm_corpus_bundle_for_summary(self) -> None:
+        """Optional: load disk corpus for human-readable titles in corpus_summary."""
+        try:
+            self._corpus_bundle = CorpusLoader().load()
+        except Exception as e:  # noqa: BLE001
+            logger.debug("CorpusLoader skipped for summary: %s", e)
+            self._corpus_bundle = None
 
     @property
     def retriever(self) -> Retriever:
@@ -96,6 +78,8 @@ class RAGPipeline:
     def corpus_summary(self) -> str:
         """Human-readable summary for logging and dashboard."""
         if not self._corpus_bundle:
+            if self._vector_store is not None:
+                return f"Mongo embedded chunks: {self._vector_store.count()}"
             return "Corpus not loaded"
         b = self._corpus_bundle
         lines = [

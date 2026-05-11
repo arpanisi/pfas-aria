@@ -1,11 +1,14 @@
 import { useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import { clearCorpus, deletePaper, getCorpusStats, uploadPaper } from "@/api/endpoints";
 
 export function CorpusPage() {
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const needPapers = searchParams.get("needPapers") === "1";
   const { data: stats, refetch } = useQuery({ queryKey: ["corpus"], queryFn: getCorpusStats });
 
   const onDrop = useCallback(async (files: File[]) => {
@@ -59,6 +62,13 @@ export function CorpusPage() {
           <span className="stat-pill">{(stats?.n_tokens_total ?? 0).toLocaleString()} tokens</span>
         </div>
       </div>
+
+      {needPapers && (
+        <p className="hyp-run-lead" style={{ marginBottom: 16 }}>
+          Literature-grounded screening needs at least <strong>three</strong> uploaded PDFs. Add papers below, then
+          return to <strong>New Run</strong> and open &quot;View run history and results&quot; again.
+        </p>
+      )}
 
       <div {...getRootProps()} className={`dropzone-large ${isDragActive ? "active" : ""}`} style={{ padding: "32px 24px" }}>
         <input {...getInputProps()} />

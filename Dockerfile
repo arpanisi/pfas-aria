@@ -36,7 +36,7 @@ COPY alembic/ ./alembic/
 
 # Create data directories
 RUN mkdir -p data/raw data/corpus data/processed data/outputs/logs \
-    data/outputs/reports data/outputs/chroma
+    data/outputs/reports
 
 # Non-root user for security
 RUN useradd -m -u 1000 aria && chown -R aria:aria /app

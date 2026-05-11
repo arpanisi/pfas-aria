@@ -12,6 +12,8 @@ import type {
   RunConfig,
   RunStatus,
   RunSummary,
+  ScreeningGroundedRequest,
+  ScreeningGroundedResponse,
 } from "@/types";
 
 // ── Pipeline ──────────────────────────────────────────────────────────────────
@@ -51,6 +53,15 @@ export const runAutomatedScreeningIteration = async (
   return data;
 };
 
+export const postScreeningGrounded = async (
+  body: ScreeningGroundedRequest
+): Promise<ScreeningGroundedResponse> => {
+  const { data } = await apiClient.post("/pipeline/screening-grounded", body, {
+    timeout: 120_000,
+  });
+  return data;
+};
+
 export const getRunStatus = async (runId: string): Promise<RunStatus> => {
   const { data } = await apiClient.get(`/pipeline/status/${runId}`);
   return data;
@@ -58,6 +69,15 @@ export const getRunStatus = async (runId: string): Promise<RunStatus> => {
 
 export const listRuns = async (): Promise<RunStatus[]> => {
   const { data } = await apiClient.get("/pipeline/runs");
+  return data;
+};
+
+export const deleteRun = async (runId: string): Promise<void> => {
+  await apiClient.delete(`/pipeline/runs/${encodeURIComponent(runId)}`);
+};
+
+export const deleteAllScreeningRuns = async (): Promise<{ deleted: number }> => {
+  const { data } = await apiClient.delete("/pipeline/runs/screening/all");
   return data;
 };
 

@@ -63,26 +63,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── ChromaDB ────────────────────────────────────────────────────────────────
-  chromadb:
-    image: chromadb/chroma:latest
-    container_name: pfas_chroma
-    restart: unless-stopped
-    ports:
-      - "8001:8000"
-    volumes:
-      - chroma_data:/chroma/chroma
-    environment:
-      IS_PERSISTENT: "TRUE"
-      ANONYMIZED_TELEMETRY: "FALSE"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
 volumes:
   postgres_data:
   mongo_data:
   redis_data:
-  chroma_data:

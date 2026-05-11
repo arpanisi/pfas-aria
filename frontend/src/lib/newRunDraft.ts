@@ -12,6 +12,7 @@ export type NewRunDraftV1 = {
   features: string[];
   runName: string;
   threshold: number;
+  screeningRunId?: string | null;
 };
 
 const STEPS: readonly NewRunStep[] = ["upload", "configure", "hypotheses"];
@@ -41,6 +42,7 @@ export function loadNewRunDraft(): NewRunDraftV1 | null {
       features: Array.isArray(d.features) ? d.features.filter((x) => typeof x === "string") : [],
       runName: typeof d.runName === "string" ? d.runName : "",
       threshold: typeof d.threshold === "number" && Number.isFinite(d.threshold) ? d.threshold : 0.75,
+      screeningRunId: typeof d.screeningRunId === "string" ? d.screeningRunId : null,
     };
   } catch {
     return null;

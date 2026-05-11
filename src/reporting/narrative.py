@@ -18,6 +18,7 @@ from src.reporting.sections import (
     ReportSections,
 )
 from src.utils.config import get_settings
+from src.utils.llm_client import chat_completion
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -152,23 +153,15 @@ class NarrativeGenerator:
 
     def _call_llm(self, prompt: str, max_tokens: int = 200, fallback: str = "") -> str:
         try:
-            import httpx
-
             from src.utils.resilience import get_llm_circuit
 
             def _do() -> str:
-                r = httpx.post(
-                    "http://localhost:11434/api/generate",
-                    json={
-                        "model": self.settings.llm.model,
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {"num_predict": max_tokens, "temperature": 0.3},
-                    },
-                    timeout=60.0,
+                return chat_completion(
+                    [{"role": "user", "content": prompt}],
+                    max_tokens=max_tokens,
+                    temperature=0.3,
+                    timeout=min(120, self.settings.llm.request_timeout),
                 )
-                r.raise_for_status()
-                return str(r.json().get("response", "").strip())
 
             return get_llm_circuit().call(_do) or fallback
         except Exception as e:

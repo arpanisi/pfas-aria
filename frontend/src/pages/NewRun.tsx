@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useDropzone } from "react-dropzone";
 import toast from "react-hot-toast";
-import { getLegacySegmentationPreview } from "@/api/endpoints";
+import { getCorpusStats, getLegacySegmentationPreview } from "@/api/endpoints";
 import { useAutomatedScreeningIteration, useUploadDataset } from "@/hooks/usePipeline";
 import {
   clearNewRunDraft,
@@ -29,6 +29,7 @@ export function NewRun() {
   const [runName, setRunName] = useState("");
   const [threshold, setThreshold] = useState(0.75);
   const [hypothesesTestedCount, setHypothesesTestedCount] = useState<number | null>(null);
+  const [screeningRunId, setScreeningRunId] = useState<string | null>(null);
 
   const [progressMsgIdx, setProgressMsgIdx] = useState(0);
   const progressMessages = [
@@ -74,6 +75,7 @@ export function NewRun() {
     setFeatures(draft.features);
     setRunName(draft.runName);
     setThreshold(draft.threshold);
+    setScreeningRunId(draft.screeningRunId ?? null);
   }, [location.state, location.pathname, navigate, applyPreviewFromUpload]);
 
   useEffect(() => {
@@ -86,8 +88,9 @@ export function NewRun() {
       features,
       runName,
       threshold,
+      screeningRunId,
     });
-  }, [preview, step, outcome, features, runName, threshold]);
+  }, [preview, step, outcome, features, runName, threshold, screeningRunId]);
 
   const onDrop = useCallback(async (files: File[]) => {
     if (!files[0]) return;
@@ -277,9 +280,35 @@ export function NewRun() {
         convergence_threshold: threshold,
       });
       setHypothesesTestedCount(r.hypotheses_tested);
+      setScreeningRunId(r.run_id ?? null);
       toast.success("Screening iteration complete");
     } catch {
       toast.error("Screening failed");
+    }
+  };
+
+  const handleViewScreeningResults = async () => {
+    if (!preview || selectedRegimeId == null) {
+      toast.error("Missing dataset or regime.");
+      return;
+    }
+    try {
+      const stats = await getCorpusStats();
+      if ((stats.n_papers ?? 0) < 3) {
+        toast.error("Upload at least three PDF papers to the corpus to run literature grounding.");
+        navigate("/corpus?needPapers=1");
+        return;
+      }
+      const q = new URLSearchParams({
+        filename: preview.filename,
+        regimeId: String(selectedRegimeId),
+      });
+      if (screeningRunId) q.set("runId", screeningRunId);
+      navigate(`/runs/screening?${q.toString()}`, {
+        state: { runName: runName.trim() || "Untitled screening" },
+      });
+    } catch {
+      toast.error("Could not verify corpus. Try again.");
     }
   };
 
@@ -326,6 +355,7 @@ export function NewRun() {
                   setOutcome("");
                   setFeatures([]);
                   setHypothesesTestedCount(null);
+                  setScreeningRunId(null);
                 }}
               >
                 Replace dataset
@@ -529,11 +559,11 @@ export function NewRun() {
                 Screening finished.{" "}
                 <strong>{hypothesesTestedCount.toLocaleString()}</strong> hypotheses were tested.
               </p>
-              <Link to="/runs" className="btn-primary">
+              <button type="button" className="btn-primary" onClick={() => void handleViewScreeningResults()}>
                 View run history and results
-              </Link>
+              </button>
               <p className="hyp-run-complete-hint">
-                Open a run from history for full dashboards when a pipeline run is recorded.
+                Opens literature-grounded screening for this regime (requires at least three corpus PDFs).
               </p>
             </div>
           )}

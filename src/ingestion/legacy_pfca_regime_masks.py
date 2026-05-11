@@ -67,18 +67,6 @@ def assign_pfca_regime_masks_from_column_lists(
         sub = df_work[input_cols].replace("no", "No")
         df_work[input_cols] = sub
 
-    print(
-        "[PFAS regime] input_cols (independent):",
-        len(input_cols),
-        input_cols,
-        flush=True,
-    )
-    print(
-        "[PFAS regime] output_cols (dependent):",
-        len(output_cols),
-        output_cols,
-        flush=True,
-    )
 
     pfas_in_cols = [col for col in input_cols if _notebook_mg_l(col)]
     _, pfas_for_mask = select_regime_pfas_input_mg_l_columns(
@@ -123,25 +111,6 @@ def assign_pfca_regime_masks_from_column_lists(
             ) from exc
         raise
 
-    print("[PFAS regime] pfas_in_cols:", pfas_in_cols, flush=True)
-    print(
-        "[PFAS regime] drivers:",
-        "pfoa=",
-        pfoa_in,
-        "pfbs=",
-        pfbs_in,
-        "pfba=",
-        pfba_in,
-        flush=True,
-    )
-    print(
-        "[PFAS regime] pfas_out_cols=",
-        pfas_out_cols,
-        "pfbs_out_col=",
-        pfbs_out_col,
-        flush=True,
-    )
-
     # Notebook: treat "-" as missing concentration, then numeric zeros for regime mask.
     if pfas_in_cols:
         df_work[pfas_in_cols] = df_work[pfas_in_cols].replace("-", np.nan).fillna(0)
@@ -164,14 +133,6 @@ def assign_pfca_regime_masks_from_column_lists(
     regimes_raw = {1: r1, 2: r2, 3: r3, 4: r4, 5: r5}
     regime_row_counts = {rid: len(sub) for rid, sub in regimes_raw.items()}
     regimes = {k: v for k, v in regimes_raw.items() if len(v) > 0}
-
-    print("[PFAS regime] regime_row_counts:", regime_row_counts, flush=True)
-    print(
-        "[PFAS regime] nonempty regime_ids:",
-        list(regimes.keys()),
-        {k: len(v) for k, v in regimes.items()},
-        flush=True,
-    )
 
     return LegacyPfcaRegimeResult(
         regimes=regimes,

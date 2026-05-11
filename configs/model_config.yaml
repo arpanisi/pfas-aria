@@ -4,29 +4,33 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 llm:
-  # Provider: "ollama" (local) or "runpod" (cloud GPU)
-  provider: "ollama"
+  # openrouter (default) | ollama | runpod
+  provider: "openrouter"
 
-  # Model to use - swap to llama3.1:70b when on RunPod
-  model: "llama3.1:8b"
+  # OpenRouter model id — see https://openrouter.ai/models
+  model: "openai/gpt-4o-mini"
 
-  # RunPod endpoint (only used when provider = "runpod")
-  runpod_endpoint: null  # Set in .env as RUNPOD_ENDPOINT
+  # RunPod: set provider to runpod and RUNPOD_ENDPOINT in .env
+  runpod_endpoint: null
 
-  temperature: 0.1        # Low = more deterministic, better for science
+  # OpenRouter HTTP API (override only if needed)
+  openrouter_base_url: "https://openrouter.ai/api/v1"
+  openrouter_site_url: null
+  openrouter_site_name: null
+
+  temperature: 0.1
   max_tokens: 4096
   request_timeout: 120
 
 embeddings:
   # Embedding model for RAG and similarity scoring
-  model: "all-MiniLM-L6-v2"   # Fast, good quality, runs locally
-  device: "cpu"                # Switch to "cuda" on RunPod
+  model: "all-MiniLM-L6-v2"
+  device: "cpu"
 
 vector_store:
-  provider: "chromadb"
-  persist_directory: "data/outputs/chroma"
-  collection_name: "pfas_corpus"
+  provider: "mongodb"
+  collection_name: "chunks"
 
 mlflow:
-  tracking_uri: "mlflow"       # Local ./mlflow directory
+  tracking_uri: "mlflow"
   experiment_name: "pfas-aria"

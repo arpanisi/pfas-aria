@@ -111,9 +111,7 @@ async def upload_paper(
     Upload and ingest a PDF immediately.
 
     Current scope:
-      PDF -> text extraction -> chunks -> MongoDB papers/chunks -> PostgreSQL registry.
-
-    Embeddings/vector search are intentionally not created here yet.
+      PDF -> text extraction -> chunks -> MongoDB papers/chunks (``embedding`` filled on first RAG build) -> PostgreSQL registry.
     """
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only PDF files are accepted")

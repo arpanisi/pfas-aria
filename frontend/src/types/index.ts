@@ -61,6 +61,7 @@ export interface RunConfig {
   convergence_threshold: number;
   hypotheses_per_round: number;
   strict_validation: boolean;
+  regime_id?: number | null;
 }
 
 export interface AutomatedScreeningIterationRequest {
@@ -72,6 +73,35 @@ export interface AutomatedScreeningIterationRequest {
 
 export interface AutomatedScreeningIterationResponse {
   hypotheses_tested: number;
+  run_id?: string | null;
+}
+
+export interface ScreeningGroundedRequest {
+  filename: string;
+  regime_id: number;
+  run_name?: string;
+  /** Screening run row to attach grounded hypotheses to (PostgreSQL). */
+  run_id?: string | null;
+}
+
+export interface ScreeningBundle {
+  hypothesis: Hypothesis;
+  model_result: ModelResult;
+  citations: Citation[];
+}
+
+export interface ScreeningGroundedResponse {
+  run_name: string;
+  filename: string;
+  display_title: string;
+  dataset_n_rows: number;
+  dataset_n_cols: number;
+  n_corpus_papers: number;
+  regime_id: number;
+  regime_n_rows: number;
+  bundles: ScreeningBundle[];
+  warnings: string[];
+  persisted_to_run_id?: string | null;
 }
 
 export interface RunStatus {
@@ -82,6 +112,11 @@ export interface RunStatus {
   final_match_score: number;
   converged: boolean;
   n_rounds_completed: number;
+  run_kind: string;
+  regime_id: number | null;
+  hypotheses_tested: number | null;
+  dataset_filename: string | null;
+  created_at?: string | null;
 }
 
 export interface Hypothesis {
@@ -118,6 +153,8 @@ export interface Citation {
   year: string | null;
   similarity_score: number;
   variable: string | null;
+  /** When set, citation was retrieved for a specific screening hypothesis (e.g. H1). */
+  hypothesis_id?: string | null;
 }
 
 export interface ConvergencePoint {

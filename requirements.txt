@@ -11,12 +11,11 @@ langchain==0.2.1
 langchain-community==0.2.1
 langchain-core==0.2.1
 
-# ── LLM ──────────────────────────────────────────────────────────────────────
+# ── LLM (OpenRouter / RunPod via HTTP; optional local Ollama) ─────────────────
 ollama==0.2.1
 
-# ── Embeddings + Vector Store ─────────────────────────────────────────────────
+# ── Embeddings (MongoDB stores vectors; no Chroma) ────────────────────────────
 sentence-transformers==3.0.1
-chromadb==0.5.0
 
 # ── Data + ML ────────────────────────────────────────────────────────────────
 pandas==2.2.2
