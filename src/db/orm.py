@@ -80,8 +80,8 @@ class Run(Base):
     data_version: Mapped[DataVersion | None] = relationship(back_populates="runs")
     regimes: Mapped[list[Regime]] = relationship(back_populates="run")
     hypotheses: Mapped[list[Hypothesis]] = relationship(back_populates="run")
-    segmentation_batches: Mapped[list[ExperimentSegmentationBatch]] = (
-        relationship(back_populates="run")
+    segmentation_batches: Mapped[list[ExperimentSegmentationBatch]] = relationship(
+        back_populates="run"
     )
 
 
@@ -105,8 +105,8 @@ class DataVersion(Base):
     parquet_path: Mapped[str] = mapped_column(String(512), nullable=True)
 
     runs: Mapped[list[Run]] = relationship(back_populates="data_version")
-    segmentation_batches: Mapped[list[ExperimentSegmentationBatch]] = (
-        relationship(back_populates="data_version")
+    segmentation_batches: Mapped[list[ExperimentSegmentationBatch]] = relationship(
+        back_populates="data_version"
     )
 
 
@@ -173,7 +173,9 @@ class ExperimentSegmentationBatch(Base):
     run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id"), nullable=True)
     batch_index: Mapped[int] = mapped_column(Integer, default=0)
     source_filename: Mapped[str] = mapped_column(String(512))
-    segmentation_method: Mapped[str] = mapped_column(String(100), default="legacy_masks")
+    segmentation_method: Mapped[str] = mapped_column(
+        String(100), default="legacy_masks"
+    )
     panel_entity_col: Mapped[str | None] = mapped_column(String(255), nullable=True)
     panel_time_col: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Dataset-level column lists (same as legacy result_iter top-level lists)
@@ -193,7 +195,9 @@ class ExperimentSegmentedRegime(Base):
 
     __tablename__ = "experiment_segmented_regimes"
     __table_args__ = (
-        UniqueConstraint("batch_id", "regime_code", name="uq_exp_seg_regime_batch_code"),
+        UniqueConstraint(
+            "batch_id", "regime_code", name="uq_exp_seg_regime_batch_code"
+        ),
         Index("ix_exp_seg_regime_batch", "batch_id"),
     )
 
@@ -228,7 +232,9 @@ class ExperimentRegimeRow(Base):
     __tablename__ = "experiment_regime_rows"
     __table_args__ = (
         Index("ix_exp_regime_rows_regime", "segmented_regime_id"),
-        Index("ix_exp_regime_rows_source_idx", "segmented_regime_id", "source_row_index"),
+        Index(
+            "ix_exp_regime_rows_source_idx", "segmented_regime_id", "source_row_index"
+        ),
     )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)

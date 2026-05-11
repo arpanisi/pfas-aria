@@ -63,7 +63,9 @@ class TestRoutesExist:
         assert response.status_code != 404
 
     def test_pipeline_legacy_segmentation_preview_exists(self):
-        response = client.get("/pipeline/legacy-segmentation-preview?filename=test.xlsx")
+        response = client.get(
+            "/pipeline/legacy-segmentation-preview?filename=test.xlsx"
+        )
         assert response.status_code != 404
 
     def test_corpus_stats_exists(self):

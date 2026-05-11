@@ -76,12 +76,18 @@ def assign_pfca_regime_masks_from_column_lists(
 
     pfas_in_cols = [col for col in input_cols if _notebook_mg_l(col)]
     pfas_out_cols = [
-        col for col in output_cols if _notebook_mg_l(col) and not _notebook_pfbs_in_col(col)
+        col
+        for col in output_cols
+        if _notebook_mg_l(col) and not _notebook_pfbs_in_col(col)
     ]
-    pfbs_cands = [col for col in output_cols if _notebook_mg_l(col) and _notebook_pfbs_in_col(col)]
+    pfbs_cands = [
+        col for col in output_cols if _notebook_mg_l(col) and _notebook_pfbs_in_col(col)
+    ]
     pfbs_out_col = pfbs_cands[0] if pfbs_cands else None
     if pfbs_out_col is None:
-        warnings.append("No output column with mg/L and PFBS in name — pfbs_out_col is None.")
+        warnings.append(
+            "No output column with mg/L and PFBS in name — pfbs_out_col is None."
+        )
 
     pfas_input_mg_l_cols = list(pfas_in_cols)
     pfas_cols = list(pfas_in_cols)
@@ -184,7 +190,9 @@ def assign_legacy_pfca_regime_masks(
     )
 
 
-def legacy_regime_result_to_result_iter_payload(result: LegacyPfcaRegimeResult) -> dict[str, Any]:
+def legacy_regime_result_to_result_iter_payload(
+    result: LegacyPfcaRegimeResult,
+) -> dict[str, Any]:
     return {
         "regimes": result.regimes,
         "regime_frames": result.regimes,

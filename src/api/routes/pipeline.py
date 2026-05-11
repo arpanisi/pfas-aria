@@ -288,9 +288,9 @@ async def legacy_segmentation_preview(
         idx_sample = [str(i) for i in sub.index[:40].tolist()]
         cond_sample: list[str] = []
         if cond_col and cond_col in sub.columns:
-            cond_sample = sorted(
-                sub[cond_col].dropna().astype(str).unique().tolist()
-            )[:25]
+            cond_sample = sorted(sub[cond_col].dropna().astype(str).unique().tolist())[
+                :25
+            ]
         non_constant_input_cols = [
             col
             for col in input_list

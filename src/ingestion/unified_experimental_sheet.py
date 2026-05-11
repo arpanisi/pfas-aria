@@ -87,7 +87,9 @@ def _likely_name_row(row: pd.Series) -> bool:
     return len(texts) >= max(5, len(row) // 5)
 
 
-def find_unified_layout_row_indices(raw: pd.DataFrame, scan: int = 16) -> tuple[int, int] | None:
+def find_unified_layout_row_indices(
+    raw: pd.DataFrame, scan: int = 16
+) -> tuple[int, int] | None:
     """
     Return ``(role_row_idx, name_row_idx)`` if a unified layout is found, else None.
     """
@@ -105,7 +107,9 @@ def find_unified_layout_row_indices(raw: pd.DataFrame, scan: int = 16) -> tuple[
     return None
 
 
-def _split_columns_by_role(types_row: pd.Series, n_cols: int) -> tuple[list[int], list[int]]:
+def _split_columns_by_role(
+    types_row: pd.Series, n_cols: int
+) -> tuple[list[int], list[int]]:
     in_ix: list[int] = []
     out_ix: list[int] = []
     for j in range(min(n_cols, len(types_row))):
@@ -130,9 +134,7 @@ def _make_unique_column_names(raw_names: list[str]) -> list[str]:
     out: list[str] = []
     for raw in raw_names:
         base = _norm_header_cell(raw) or "col"
-        base_snake = (
-            base.strip().lower().replace(" ", "_").replace("-", "_") or "col"
-        )
+        base_snake = base.strip().lower().replace(" ", "_").replace("-", "_") or "col"
         if base_snake not in seen:
             seen[base_snake] = 0
             out.append(base_snake)
@@ -151,7 +153,9 @@ class UnifiedSheetMeta:
     output_cols: list[str]
 
 
-def parse_unified_experimental_excel(content: bytes) -> tuple[pd.DataFrame, UnifiedSheetMeta] | None:
+def parse_unified_experimental_excel(
+    content: bytes,
+) -> tuple[pd.DataFrame, UnifiedSheetMeta] | None:
     """
     If the workbook matches the unified layout, return ``(df, meta)``; else ``None``.
     """
@@ -197,7 +201,9 @@ def parse_unified_experimental_excel(content: bytes) -> tuple[pd.DataFrame, Unif
     return data.reset_index(drop=True), meta
 
 
-def load_excel_bytes_with_layout(content: bytes) -> tuple[pd.DataFrame, int | None, UnifiedSheetMeta | None]:
+def load_excel_bytes_with_layout(
+    content: bytes,
+) -> tuple[pd.DataFrame, int | None, UnifiedSheetMeta | None]:
     """
     Load the first Excel sheet: unified independent/dependent layout if detected,
     otherwise :func:`read_excel_smart` + normalized column names.
@@ -223,11 +229,11 @@ def _is_mg_l_concentration(col: str) -> bool:
     return "mg/l" in cl
 
 
-def list_pfas_like_output_columns(output_cols: list[str]) -> tuple[list[str], str | None]:
+def list_pfas_like_output_columns(
+    output_cols: list[str],
+) -> tuple[list[str], str | None]:
     pfas_out = [
-        c
-        for c in output_cols
-        if _is_mg_l_concentration(c) and "pfbs" not in c.lower()
+        c for c in output_cols if _is_mg_l_concentration(c) and "pfbs" not in c.lower()
     ]
     pfbs_cands = [
         c for c in output_cols if _is_mg_l_concentration(c) and "pfbs" in c.lower()

@@ -127,7 +127,9 @@ async def persist_legacy_result_iter(
     Returns the new ``ExperimentSegmentationBatch`` id.
     """
     if not data_version_id and not run_id:
-        raise ValueError("persist_legacy_result_iter requires data_version_id and/or run_id")
+        raise ValueError(
+            "persist_legacy_result_iter requires data_version_id and/or run_id"
+        )
 
     regime_frames: dict[Any, Any] = result_iter.get("regime_frames") or (
         result_iter.get("regimes") or {}
@@ -205,7 +207,9 @@ async def persist_legacy_result_iter(
             extra_metadata={
                 "cat_cols": _listify(_coalesce_key(cat_cols_regimes, v_raw)),
                 "const_cols": _listify(_coalesce_key(const_cols_regimes, v_raw)),
-                "non_unique_cols": _listify(_coalesce_key(non_unique_cols_regimes, v_raw)),
+                "non_unique_cols": _listify(
+                    _coalesce_key(non_unique_cols_regimes, v_raw)
+                ),
             },
         )
         session.add(seg)
@@ -282,13 +286,11 @@ async def persist_legacy_results_iter_indexed(
     ``batch_{i}`` is used.
     """
     ids: list[str] = []
-    for iter_key, result_iter in sorted(results_iter.items(), key=lambda kv: int(str(kv[0]))):
+    for iter_key, result_iter in sorted(
+        results_iter.items(), key=lambda kv: int(str(kv[0]))
+    ):
         idx = int(str(iter_key))
-        fn = (
-            filenames[idx]
-            if filenames and idx < len(filenames)
-            else f"batch_{idx}"
-        )
+        fn = filenames[idx] if filenames and idx < len(filenames) else f"batch_{idx}"
         bid = await persist_legacy_result_iter(
             session,
             data_version_id=data_version_id,

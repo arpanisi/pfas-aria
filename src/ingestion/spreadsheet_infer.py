@@ -102,7 +102,9 @@ def infer_excel_header_row_index(
     return best_i
 
 
-def read_excel_smart(content_or_path: bytes | Path, *, nrows_preview: int = 50) -> tuple[pd.DataFrame, int]:
+def read_excel_smart(
+    content_or_path: bytes | Path, *, nrows_preview: int = 50
+) -> tuple[pd.DataFrame, int]:
     """
     Read the first sheet from Excel bytes or filesystem path.
 
