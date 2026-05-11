@@ -46,23 +46,29 @@ class PaperRegistry:
         embedding_model: str,
         chunk_size: int,
         mongo_chunk_ids: list[str],
+        paper_id: str | None = None,
+        source: str = "corpus",
     ) -> Paper:
         """Register a newly processed paper."""
         content_hash = self._hash_file(pdf_path)
 
-        paper = Paper(
-            filename=pdf_path.name,
-            content_hash=content_hash,
-            title=title,
-            parsed_at=datetime.utcnow(),
-            n_chunks=n_chunks,
-            n_tokens=n_tokens,
-            embedding_model=embedding_model,
-            indexed_at=datetime.utcnow(),
-            chunk_size=chunk_size,
-            source="corpus",
-            mongo_chunk_ids=mongo_chunk_ids,
-        )
+        paper_kwargs = {
+            "filename": pdf_path.name,
+            "content_hash": content_hash,
+            "title": title,
+            "parsed_at": datetime.utcnow(),
+            "n_chunks": n_chunks,
+            "n_tokens": n_tokens,
+            "embedding_model": embedding_model,
+            "indexed_at": datetime.utcnow(),
+            "chunk_size": chunk_size,
+            "source": source,
+            "mongo_chunk_ids": mongo_chunk_ids,
+        }
+        if paper_id is not None:
+            paper_kwargs["id"] = paper_id
+
+        paper = Paper(**paper_kwargs)
         self._session.add(paper)
         await self._session.flush()
 
