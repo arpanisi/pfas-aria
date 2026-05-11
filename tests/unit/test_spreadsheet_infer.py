@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pandas as pd
-import pytest
 
 from src.ingestion.spreadsheet_infer import infer_excel_header_row_index, read_excel_smart
 
