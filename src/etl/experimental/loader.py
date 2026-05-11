@@ -18,7 +18,7 @@ import pandas as pd
 from src.etl.experimental.schema import ExperimentalDataValidator
 from src.etl.experimental.transformer import ExperimentalTransformer
 from src.ingestion.data_loader import ColumnProfile, DataBundle
-from src.ingestion.spreadsheet_infer import read_excel_smart
+from src.ingestion.unified_experimental_sheet import load_excel_bytes_with_layout
 from src.utils.config import get_settings
 from src.utils.exceptions import DataFileNotFoundError, IngestionError
 from src.utils.logging import get_logger
@@ -143,14 +143,17 @@ class ExperimentalETL:
             elif path.suffix == ".tsv":
                 df = pd.read_csv(path, sep="\t", low_memory=False)
             elif path.suffix in {".xlsx", ".xls"}:
-                df, _ = read_excel_smart(path)
+                df, _, _ = load_excel_bytes_with_layout(path.read_bytes())
             else:
                 raise IngestionError(f"Unsupported: {path.suffix}")
         except Exception as e:
             raise IngestionError(f"Failed to read {path.name}: {e}") from e
 
-        # Standardize column names immediately
-        df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
+        # Standardize column names immediately (idempotent if loader already normalized)
+        df.columns = [
+            str(c).strip().lower().replace(" ", "_").replace("-", "_")
+            for c in df.columns
+        ]
         return df
 
     def _hash_dataframe(self, df: pd.DataFrame) -> str:

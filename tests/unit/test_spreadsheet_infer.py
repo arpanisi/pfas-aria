@@ -9,6 +9,7 @@ from src.ingestion.spreadsheet_infer import (
     read_excel_smart,
 )
 
+
 def test_infer_header_row_first_row_is_header() -> None:
     raw = pd.DataFrame(
         [

@@ -5,6 +5,7 @@ import type {
   CorpusStats,
   DatasetPreview,
   Hypothesis,
+  LegacySegmentationPreview,
   ModelResult,
   RunConfig,
   RunStatus,
@@ -18,6 +19,15 @@ export const uploadDataset = async (file: File): Promise<DatasetPreview> => {
   formData.append("file", file);
   const { data } = await apiClient.post("/pipeline/upload", formData, {
     headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+};
+
+export const getLegacySegmentationPreview = async (
+  filename: string
+): Promise<LegacySegmentationPreview> => {
+  const { data } = await apiClient.get("/pipeline/legacy-segmentation-preview", {
+    params: { filename },
   });
   return data;
 };

@@ -14,7 +14,7 @@ from typing import Any
 
 import pandas as pd
 
-from src.ingestion.spreadsheet_infer import read_excel_smart
+from src.ingestion.unified_experimental_sheet import load_excel_bytes_with_layout
 from src.utils.config import get_settings
 from src.utils.exceptions import DataFileNotFoundError, IngestionError
 from src.utils.logging import get_logger
@@ -172,11 +172,21 @@ class DataLoader:
             elif path.suffix == ".tsv":
                 return pd.read_csv(path, sep="\t")
             elif path.suffix in {".xlsx", ".xls"}:
-                df, header_i = read_excel_smart(path)
-                if header_i:
+                content = path.read_bytes()
+                df, header_i, unified = load_excel_bytes_with_layout(content)
+                if unified is not None:
                     logger.info(
-                        f"Excel {path.name}: using row {header_i} as header "
-                        f"(skipped {header_i} preamble row(s))"
+                        "Excel %s: unified independent/dependent layout "
+                        "(header row index %s)",
+                        path.name,
+                        unified.name_row_index,
+                    )
+                elif header_i:
+                    logger.info(
+                        "Excel %s: using row %s as header (skipped %s preamble row(s))",
+                        path.name,
+                        header_i,
+                        header_i,
                     )
                 return df
         except Exception as e:

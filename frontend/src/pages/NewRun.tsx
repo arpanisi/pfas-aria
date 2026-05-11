@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { useDropzone } from "react-dropzone";
 import toast from "react-hot-toast";
+import { getLegacySegmentationPreview } from "@/api/endpoints";
 import { useUploadDataset, useStartRun } from "@/hooks/usePipeline";
 import {
   clearNewRunDraft,
   loadNewRunDraft,
   saveNewRunDraft,
 } from "@/lib/newRunDraft";
-import type { DatasetPreview } from "@/types";
+import type { ColumnInfo, DatasetPreview, LegacyRegimeSummary } from "@/types";
 
 type Step = "upload" | "configure" | "settings";
 
@@ -33,7 +35,7 @@ export function NewRun() {
 
   const applyPreviewFromUpload = useCallback((p: DatasetPreview) => {
     setPreview(p);
-    const nums = p.columns.filter((c) => c.is_numeric).map((c) => c.name);
+    const nums = p.columns.filter((c: ColumnInfo) => c.is_numeric).map((c: ColumnInfo) => c.name);
     setFeatures(nums);
     setStep("configure");
   }, []);
@@ -91,10 +93,101 @@ export function NewRun() {
     disabled: uploading,
   });
 
-  const toggleFeature = (col: string) => {
-    if (col === outcome) return;
-    setFeatures((f) => f.includes(col) ? f.filter((c) => c !== col) : [...f, col]);
-  };
+  const [selectedRegimeId, setSelectedRegimeId] = useState<number | null>(null);
+
+  const segQuery = useQuery({
+    queryKey: ["legacySegmentation", preview?.filename],
+    queryFn: () => getLegacySegmentationPreview(preview!.filename),
+    enabled: step === "configure" && !!preview?.filename,
+    staleTime: 60_000,
+    retry: 0,
+  });
+
+  useEffect(() => {
+    const regimes = segQuery.data?.regimes;
+    if (!regimes?.length) return;
+    setSelectedRegimeId((prev) => {
+      const ids = new Set(regimes.map((r) => r.regime_id));
+      if (prev != null && ids.has(prev)) return prev;
+      return regimes[0].regime_id;
+    });
+  }, [segQuery.data]);
+
+  useEffect(() => {
+    if (step !== "configure" || !preview) return;
+    if (!segQuery.isFetched) return;
+    const d = segQuery.data;
+    const nums = preview.columns.filter((c: ColumnInfo) => c.is_numeric).map((c: ColumnInfo) => c.name);
+    if (!d?.regimes?.length || (!(d.input_cols?.length) && !(d.output_cols?.length))) {
+      const oc = outcome && nums.includes(outcome) ? outcome : nums[0] ?? "";
+      setOutcome(oc);
+      setFeatures(nums.filter((n) => n !== oc));
+      return;
+    }
+    const rid = selectedRegimeId ?? d.regimes[0].regime_id;
+    const regime = d.regimes.find((r) => r.regime_id === rid);
+    if (!regime) return;
+    const vi = new Set(regime.non_constant_input_cols);
+    const varyingIn = d.input_cols.filter((n) => vi.has(n));
+    const vo = new Set(regime.non_constant_output_cols);
+    const varyingOut = d.output_cols.filter((n) => vo.has(n));
+    const oc = varyingOut[0] ?? d.output_cols[0] ?? nums[0] ?? "";
+    setOutcome(oc);
+    const ins = varyingIn.length ? varyingIn : d.input_cols;
+    setFeatures(ins.filter((n) => n !== oc));
+  }, [step, preview, segQuery.isFetched, segQuery.data, selectedRegimeId, outcome]);
+
+  const columnByName = useMemo(() => {
+    const m = new Map<string, ColumnInfo>();
+    if (preview) for (const c of preview.columns) m.set(c.name, c);
+    return m;
+  }, [preview]);
+
+  const selectedRegime = useMemo((): LegacyRegimeSummary | null => {
+    if (!segQuery.data || selectedRegimeId == null) return null;
+    return segQuery.data.regimes.find((r) => r.regime_id === selectedRegimeId) ?? null;
+  }, [segQuery.data, selectedRegimeId]);
+
+  const regimeVaryingInputColumns = useMemo(() => {
+    if (!selectedRegime || !segQuery.data?.input_cols?.length || !preview) return [];
+    const allowed = new Set(selectedRegime.non_constant_input_cols);
+    return segQuery.data.input_cols
+      .filter((name) => allowed.has(name))
+      .map((name) => columnByName.get(name))
+      .filter((c): c is ColumnInfo => c != null);
+  }, [segQuery.data, preview, columnByName, selectedRegime]);
+
+  const regimeVaryingOutputColumns = useMemo(() => {
+    if (!selectedRegime || !segQuery.data?.output_cols?.length || !preview) return [];
+    const allowed = new Set(selectedRegime.non_constant_output_cols);
+    return segQuery.data.output_cols
+      .filter((name) => allowed.has(name))
+      .map((name) => columnByName.get(name))
+      .filter((c): c is ColumnInfo => c != null);
+  }, [segQuery.data, preview, columnByName, selectedRegime]);
+
+  const showRegimeColumnPanel = Boolean(
+    segQuery.data?.regimes?.length &&
+      selectedRegime &&
+      ((segQuery.data.input_cols?.length ?? 0) > 0 || (segQuery.data.output_cols?.length ?? 0) > 0),
+  );
+
+  const renderReadonlyColCard = (col: ColumnInfo) => (
+    <div key={col.name} className="col-card col-card-readonly">
+      <div className="col-card-header">
+        <span className="col-name">{col.name}</span>
+        <span className={`col-dtype ${col.is_numeric ? "num" : ""}`}>
+          {col.is_numeric ? "num" : "cat"}
+        </span>
+      </div>
+      <div className="col-meta">
+        {col.n_unique} unique · {col.missing_pct.toFixed(1)}% missing
+      </div>
+      <div className="col-sample">{col.sample_values.slice(0, 3).map(String).join(", ")}</div>
+    </div>
+  );
+
+  const steps: Step[] = ["upload", "configure", "settings"];
 
   const handleLaunch = async () => {
     if (!preview || !outcome || !features.length || !runName.trim()) {
@@ -114,20 +207,29 @@ export function NewRun() {
     } catch { toast.error("Failed to start run"); }
   };
 
-  const steps: Step[] = ["upload", "configure", "settings"];
-
   return (
     <div className="new-run-page">
       <div className="page-header">
         <h1 className="page-title">New Run</h1>
-        <div className="step-pills">
-          {["Upload", "Configure", "Settings"].map((s, i) => {
-            const key = steps[i];
-            const cur = steps.indexOf(step);
-            return (
-              <div key={s} className={`step-pill ${i === cur ? "active" : i < cur ? "done" : ""}`}>{s}</div>
-            );
-          })}
+        <div className="page-header-right">
+          {preview && step === "configure" && (
+            <button
+              type="button"
+              className="btn-secondary new-run-header-refresh"
+              onClick={() => void segQuery.refetch()}
+              disabled={segQuery.isFetching}
+            >
+              {segQuery.isFetching ? "Loading…" : "Refresh"}
+            </button>
+          )}
+          <div className="step-pills">
+            {["Upload", "Configure", "Settings"].map((s, i) => {
+              const cur = steps.indexOf(step);
+              return (
+                <div key={s} className={`step-pill ${i === cur ? "active" : i < cur ? "done" : ""}`}>{s}</div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -138,13 +240,6 @@ export function NewRun() {
               <span>{preview.filename}</span>
               <span>{preview.n_rows.toLocaleString()} rows</span>
               <span>{preview.n_cols} columns</span>
-              {preview.excel_header_row != null && preview.excel_header_row > 0 && (
-                <span style={{ color: "var(--text-muted)" }}>
-                  Excel: header row {preview.excel_header_row + 1}
-                  {" "}(skipped {preview.excel_header_row} preamble row
-                  {preview.excel_header_row === 1 ? "" : "s"})
-                </span>
-              )}
               <button
                 type="button"
                 className="btn-secondary"
@@ -175,40 +270,94 @@ export function NewRun() {
             <span>{preview.filename}</span>
             <span>{preview.n_rows.toLocaleString()} rows</span>
             <span>{preview.n_cols} columns</span>
-            {preview.excel_header_row != null && preview.excel_header_row > 0 && (
-              <span style={{ color: "var(--text-muted)" }}>
-                Excel header row {preview.excel_header_row + 1}
-              </span>
-            )}
-            <span style={{ marginLeft: "auto", color: "var(--text-dim)" }}>
-              {features.length} features selected · outcome: {outcome || "none"}
-            </span>
           </div>
-          <div className="col-grid-scroll">
-            <div className="col-grid">
-            {preview.columns.map((col) => (
-              <div key={col.name} className="col-card">
-                <div className="col-card-header">
-                  <span className="col-name">{col.name}</span>
-                  <span className={`col-dtype ${col.is_numeric ? "num" : ""}`}>
-                    {col.is_numeric ? "num" : "cat"}
-                  </span>
-                </div>
-                <div className="col-meta">{col.n_unique} unique · {col.missing_pct.toFixed(1)}% missing</div>
-                <div className="col-sample">{col.sample_values.slice(0, 3).map(String).join(", ")}</div>
-                <div className="col-actions">
-                  <button
-                    className={`col-btn outcome ${col.name === outcome ? "active" : ""}`}
-                    onClick={() => setOutcome(col.name)}
-                  >Outcome</button>
-                  <button
-                    className={`col-btn feature ${features.includes(col.name) ? "active" : ""}`}
-                    onClick={() => toggleFeature(col.name)}
-                    disabled={col.name === outcome}
-                  >Feature</button>
-                </div>
+
+          <div className="new-run-regime-block">
+            {segQuery.isLoading && <div className="seg-preview-status">Loading…</div>}
+            {segQuery.isError && (
+              <div className="seg-preview-error">
+                {(() => {
+                  const d = (segQuery.error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+                  if (typeof d === "string") return d;
+                  if (Array.isArray(d)) return d.map((x) => (typeof x === "object" && x && "msg" in x ? String((x as { msg: string }).msg) : JSON.stringify(x))).join("; ");
+                  return "Could not load preview for this file.";
+                })()}
               </div>
-            ))}
+            )}
+            {segQuery.data && (
+              <>
+                {segQuery.data.warnings.length > 0 && (
+                  <div className="seg-preview-warn">
+                    {segQuery.data.warnings.join(" ")}
+                  </div>
+                )}
+                <div className="seg-regime-tabs" role="tablist" aria-label="Regimes">
+                  {segQuery.data.regimes.map((r) => {
+                    const active = r.regime_id === selectedRegimeId;
+                    return (
+                      <button
+                        key={r.regime_id}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        aria-label={`Regime ${r.regime_id}, ${r.n_rows.toLocaleString()} rows`}
+                        className={`seg-regime-tab${active ? " active" : ""}`}
+                        onClick={() => setSelectedRegimeId(r.regime_id)}
+                      >
+                        <span
+                          className="seg-regime-tab-cond"
+                          title={
+                            r.condition_values_sample.length > 0
+                              ? r.condition_values_sample.join(" · ")
+                              : undefined
+                          }
+                        >
+                          {r.condition_values_sample.length > 0
+                            ? r.condition_values_sample.join(" · ")
+                            : "—"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="col-grid-scroll">
+            <div className="regime-column-panels">
+              {showRegimeColumnPanel && (
+                <>
+                  <section className="regime-col-section" aria-labelledby="regime-inputs-heading">
+                    <h3 id="regime-inputs-heading" className="regime-col-section-title">
+                      Inputs
+                      {selectedRegime && (
+                        <span className="regime-col-section-meta">
+                          {" "}
+                          · regime {selectedRegime.regime_id} · {selectedRegime.n_rows.toLocaleString()} rows
+                          {" "}
+                          · varying only
+                        </span>
+                      )}
+                    </h3>
+                    {regimeVaryingInputColumns.length > 0 ? (
+                      <div className="col-grid">{regimeVaryingInputColumns.map(renderReadonlyColCard)}</div>
+                    ) : (
+                      <p className="regime-col-section-empty">No varying inputs in this regime.</p>
+                    )}
+                  </section>
+                  <section className="regime-col-section" aria-labelledby="regime-outputs-heading">
+                    <h3 id="regime-outputs-heading" className="regime-col-section-title">
+                      Outputs
+                    </h3>
+                    {regimeVaryingOutputColumns.length > 0 ? (
+                      <div className="col-grid">{regimeVaryingOutputColumns.map(renderReadonlyColCard)}</div>
+                    ) : (
+                      <p className="regime-col-section-empty">No varying outputs in this regime.</p>
+                    )}
+                  </section>
+                </>
+              )}
             </div>
           </div>
           <div className="step-actions" style={{ marginTop: 16, flexShrink: 0 }}>
@@ -224,14 +373,6 @@ export function NewRun() {
             <span>{preview.filename}</span>
             <span>{preview.n_rows.toLocaleString()} rows</span>
             <span>{preview.n_cols} columns</span>
-            {preview.excel_header_row != null && preview.excel_header_row > 0 && (
-              <span style={{ color: "var(--text-muted)" }}>
-                Excel header row {preview.excel_header_row + 1}
-              </span>
-            )}
-            <span style={{ marginLeft: "auto", color: "var(--text-dim)" }}>
-              Outcome: {outcome} · {features.length} features
-            </span>
           </div>
           <div className="settings-grid">
             <div className="field">

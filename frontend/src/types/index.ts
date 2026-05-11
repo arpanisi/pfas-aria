@@ -9,6 +9,39 @@ export interface ColumnInfo {
   sample_values: (string | number)[];
 }
 
+export interface LegacyRegimeSummary {
+  regime_id: number;
+  n_rows: number;
+  row_indices_sample: string[];
+  condition_values_sample: string[];
+  /** Input columns with >1 distinct value within this regime's rows. */
+  non_constant_input_cols: string[];
+  /** Output columns with >1 distinct value within this regime's rows. */
+  non_constant_output_cols: string[];
+}
+
+export interface RegimeRowCount {
+  regime_id: number;
+  n_rows: number;
+}
+
+export interface LegacySegmentationPreview {
+  filename: string;
+  n_rows: number;
+  n_cols: number;
+  n_regimes: number;
+  pfoa_col: string;
+  pfba_col: string;
+  pfbs_col: string;
+  n_pfas_input_columns: number;
+  input_cols: string[];
+  output_cols: string[];
+  regimes: LegacyRegimeSummary[];
+  /** Row counts for regimes 1–5 (includes zeros for empty patterns). */
+  regime_row_counts: RegimeRowCount[];
+  warnings: string[];
+}
+
 export interface DatasetPreview {
   filename: string;
   n_rows: number;
