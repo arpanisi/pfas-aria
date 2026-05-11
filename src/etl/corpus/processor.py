@@ -104,7 +104,7 @@ class CorpusProcessor:
 
             for i, text in enumerate(chunks):
                 chunk_hash = hashlib.sha256(
-                    f"{paper_hash}:{i}:{text}".encode("utf-8")
+                    f"{paper_hash}:{i}:{text}".encode()
                 ).hexdigest()
                 doc_id = hashlib.sha256(f"{paper_hash}:{i}".encode()).hexdigest()[:16]
                 n_tokens = max(1, len(text) // 4)

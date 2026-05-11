@@ -73,7 +73,7 @@ def _sha256_bytes(content: bytes) -> str:
 
 
 def _chunk_content_hash(paper_hash: str, chunk_index: int, text: str) -> str:
-    payload = f"{paper_hash}:{chunk_index}:{text}".encode("utf-8")
+    payload = f"{paper_hash}:{chunk_index}:{text}".encode()
     return hashlib.sha256(payload).hexdigest()
 
 
