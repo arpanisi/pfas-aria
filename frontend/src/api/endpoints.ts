@@ -1,5 +1,7 @@
 import { apiClient } from "./client";
 import type {
+  AutomatedScreeningIterationRequest,
+  AutomatedScreeningIterationResponse,
   Citation,
   ConvergencePoint,
   CorpusStats,
@@ -36,6 +38,16 @@ export const startRun = async (
   config: RunConfig
 ): Promise<{ run_id: string; status: string }> => {
   const { data } = await apiClient.post("/pipeline/run", config);
+  return data;
+};
+
+export const runAutomatedScreeningIteration = async (
+  body: AutomatedScreeningIterationRequest
+): Promise<AutomatedScreeningIterationResponse> => {
+  const { data } = await apiClient.post(
+    "/pipeline/automated-screening-iteration",
+    body
+  );
   return data;
 };
 

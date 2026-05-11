@@ -63,6 +63,17 @@ export interface RunConfig {
   strict_validation: boolean;
 }
 
+export interface AutomatedScreeningIterationRequest {
+  filename: string;
+  run_name: string;
+  regime_id?: number;
+  convergence_threshold?: number;
+}
+
+export interface AutomatedScreeningIterationResponse {
+  hypotheses_tested: number;
+}
+
 export interface RunStatus {
   run_id: string;
   run_name: string;

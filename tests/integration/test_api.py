@@ -68,6 +68,13 @@ class TestRoutesExist:
         )
         assert response.status_code != 404
 
+    def test_pipeline_automated_screening_iteration_exists(self):
+        response = client.post(
+            "/pipeline/automated-screening-iteration",
+            json={"filename": "nope.xlsx", "run_name": ""},
+        )
+        assert response.status_code != 404
+
     def test_corpus_stats_exists(self):
         response = client.get("/corpus/stats")
         assert response.status_code != 404

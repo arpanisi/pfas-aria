@@ -151,6 +151,18 @@ class RunStatus(BaseModel):
     n_rounds_completed: int
 
 
+class AutomatedScreeningIterationIn(BaseModel):
+    filename: str
+    run_name: str = ""
+    regime_id: int | None = None
+    # Reserved for future screening / ranking thresholds; logged for traceability.
+    convergence_threshold: float | None = None
+
+
+class AutomatedScreeningIterationOut(BaseModel):
+    hypotheses_tested: int
+
+
 # ── Upload ────────────────────────────────────────────────────────────────────
 
 
@@ -334,7 +346,41 @@ async def legacy_segmentation_preview(
     )
 
 
-# ── Start run ─────────────────────────────────────────────────────────────────
+@router.post(
+    "/automated-screening-iteration",
+    response_model=AutomatedScreeningIterationOut,
+)
+async def automated_screening_iteration(
+    body: AutomatedScreeningIterationIn,
+    user: CurrentUser,
+) -> AutomatedScreeningIterationOut:
+    """
+    One synchronous screening pass: input subsets × numeric outputs × model families.
+    When ``regime_id`` is set, only that regime is screened; otherwise all nonempty regimes.
+    """
+    from src.pipeline.automated_screening import run_automated_screening_iteration
+
+    path = _safe_raw_file_path(body.filename)
+    logger.info(
+        "Automated screening iteration file=%s run_name=%s regime_id=%s conv=%s user=%s",
+        body.filename,
+        body.run_name,
+        body.regime_id,
+        body.convergence_threshold,
+        user.get("sub", "?"),
+    )
+
+    def _sync() -> int:
+        df, _hdr, unified_meta = _read_normalized_dataframe(path)
+        return run_automated_screening_iteration(
+            df,
+            unified_meta=unified_meta,
+            regime_id=body.regime_id,
+        )
+
+    loop = asyncio.get_event_loop()
+    n = int(await loop.run_in_executor(None, _sync))
+    return AutomatedScreeningIterationOut(hypotheses_tested=n)
 
 
 @router.post("/run", status_code=status.HTTP_202_ACCEPTED)

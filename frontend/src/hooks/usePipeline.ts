@@ -7,10 +7,11 @@ import {
   getRunStatus,
   getRunSummary,
   listRuns,
+  runAutomatedScreeningIteration,
   startRun,
   uploadDataset,
 } from "@/api/endpoints";
-import type { RunConfig } from "@/types";
+import type { AutomatedScreeningIterationRequest, RunConfig } from "@/types";
 
 // ── Upload ────────────────────────────────────────────────────────────────────
 
@@ -29,6 +30,13 @@ export function useStartRun() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["runs"] });
     },
+  });
+}
+
+export function useAutomatedScreeningIteration() {
+  return useMutation({
+    mutationFn: (body: AutomatedScreeningIterationRequest) =>
+      runAutomatedScreeningIteration(body),
   });
 }
 
