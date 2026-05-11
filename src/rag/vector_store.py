@@ -55,7 +55,9 @@ class VectorStore:
                 "only 'mongodb' is supported."
             )
         self._collection_name = cfg.collection_name
-        self._client = MongoClient(MONGO_URL, serverSelectionTimeoutMS=5000)
+        self._client: MongoClient[Any] = MongoClient(
+            MONGO_URL, serverSelectionTimeoutMS=5000
+        )
         self._coll = self._client[MONGO_DB][self._collection_name]
         self._embedder = get_embedder()
         self._model_name = self._embedder.model_name

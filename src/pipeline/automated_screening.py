@@ -11,6 +11,7 @@ from collections.abc import Iterator
 
 import numpy as np
 import pandas as pd
+from sklearn.base import BaseEstimator
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.linear_model import ElasticNet, Lasso, LinearRegression, Ridge
 from sklearn.pipeline import Pipeline
@@ -107,7 +108,7 @@ def _fit_and_count(
 ) -> int:
     """Return number of model fits attempted (including failures)."""
     n = 0
-    estimators: list[tuple[str, object]] = [
+    estimators: list[tuple[str, BaseEstimator]] = [
         ("ols", LinearRegression()),
         ("ridge", Ridge(alpha=1.0, random_state=0)),
         (
