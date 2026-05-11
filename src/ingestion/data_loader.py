@@ -158,7 +158,7 @@ class DataLoader:
             elif path.suffix == ".tsv":
                 return pd.read_csv(path, sep="\t")
             elif path.suffix in {".xlsx", ".xls"}:
-                return pd.read_excel(path)
+                return pd.read_excel(path, skiprows=1)
         except Exception as e:
             raise IngestionError(f"Failed to read {path}: {e}") from e
 
