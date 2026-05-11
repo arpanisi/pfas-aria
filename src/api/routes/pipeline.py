@@ -255,9 +255,7 @@ async def _delete_hypothesis_subtree(db: AsyncSession, run_id: str) -> None:
     if mr_ids:
         await db.execute(delete(Citation).where(Citation.model_result_id.in_(mr_ids)))
         await db.execute(
-            delete(ValidationResult).where(
-                ValidationResult.model_result_id.in_(mr_ids)
-            )
+            delete(ValidationResult).where(ValidationResult.model_result_id.in_(mr_ids))
         )
         await db.execute(delete(ModelResult).where(ModelResult.id.in_(mr_ids)))
     await db.execute(delete(Hypothesis).where(Hypothesis.run_id == run_id))
@@ -339,7 +337,9 @@ async def _persist_screening_grounded_bundles(
             )
 
     if bundles:
-        best_match = max((float(b.model_result.match_score) for b in bundles), default=0.0)
+        best_match = max(
+            (float(b.model_result.match_score) for b in bundles), default=0.0
+        )
         run.final_match_score = best_match
     snap = dict(_snapshot_dict(run))
     snap["grounding_saved_at"] = datetime.utcnow().isoformat() + "Z"
@@ -881,7 +881,9 @@ async def get_run_status_endpoint(
             hypothesis_count=hyp_count,
             status_override=str(cached.get("status", run.status)),
             current_round_override=int(cached.get("round", run.n_rounds_completed)),
-            match_score_override=float(cached.get("match_score", run.final_match_score)),
+            match_score_override=float(
+                cached.get("match_score", run.final_match_score)
+            ),
             converged_override=bool(cached.get("converged", run.converged)),
         )
 
@@ -901,15 +903,12 @@ async def list_runs(
 
     run_ids = [r.id for r in runs]
     count_rows = (
-        (
-            await db.execute(
-                select(Hypothesis.run_id, func.count(Hypothesis.id))
-                .where(Hypothesis.run_id.in_(run_ids))
-                .group_by(Hypothesis.run_id)
-            )
+        await db.execute(
+            select(Hypothesis.run_id, func.count(Hypothesis.id))
+            .where(Hypothesis.run_id.in_(run_ids))
+            .group_by(Hypothesis.run_id)
         )
-        .all()
-    )
+    ).all()
     count_map = {row[0]: int(row[1]) for row in count_rows}
 
     return [

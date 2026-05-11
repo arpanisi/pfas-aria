@@ -95,7 +95,9 @@ class VectorStore:
             logger.info("No chunks need embedding")
             return 0
 
-        logger.info("Embedding %s Mongo chunks (model=%s)...", len(to_process), self._model_name)
+        logger.info(
+            "Embedding %s Mongo chunks (model=%s)...", len(to_process), self._model_name
+        )
         batch_size = 32
         updated = 0
         now = datetime.utcnow()
@@ -123,7 +125,9 @@ class VectorStore:
         logger.info("Wrote embeddings for %s chunks", updated)
         return updated
 
-    def build(self, documents: list[Document] | None = None, force_rebuild: bool = False) -> None:
+    def build(
+        self, documents: list[Document] | None = None, force_rebuild: bool = False
+    ) -> None:
         """Ensure Mongo chunks carry embeddings. Legacy ``documents`` is ignored."""
         self.ensure_all_chunks_embedded(force_rebuild=force_rebuild)
 

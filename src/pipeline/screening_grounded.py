@@ -256,7 +256,8 @@ def run_screening_grounded_for_regime(
                     "p_values": {k: round(v, 6) for k, v in c.p_values.items()},
                     "significant_variables": c.significant_variables,
                     "match_score": round(min(1.0, c.lit_score), 4),
-                    "validation_passed": c.r_squared >= MIN_R2 and c.lit_score >= MIN_LIT,
+                    "validation_passed": c.r_squared >= MIN_R2
+                    and c.lit_score >= MIN_LIT,
                 },
                 "citations": _citations_for_candidate(retriever, c, hid),
             }

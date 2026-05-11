@@ -67,7 +67,6 @@ def assign_pfca_regime_masks_from_column_lists(
         sub = df_work[input_cols].replace("no", "No")
         df_work[input_cols] = sub
 
-
     pfas_in_cols = [col for col in input_cols if _notebook_mg_l(col)]
     _, pfas_for_mask = select_regime_pfas_input_mg_l_columns(
         input_cols, warnings=warnings

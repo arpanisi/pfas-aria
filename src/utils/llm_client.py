@@ -33,7 +33,9 @@ def chat_completion(
 
     provider = (llm.provider or "openrouter").lower().strip()
     if provider == "openrouter":
-        return _openrouter_chat(messages, max_tokens=max_t, temperature=temp, timeout=to)
+        return _openrouter_chat(
+            messages, max_tokens=max_t, temperature=temp, timeout=to
+        )
     if provider == "ollama":
         return _ollama_chat(messages, max_tokens=max_t, temperature=temp, timeout=to)
     if provider == "runpod":
@@ -61,7 +63,9 @@ def _openrouter_chat(
         "Content-Type": "application/json",
     }
     site_url = os.getenv("OPENROUTER_SITE_URL", llm.openrouter_site_url or "").strip()
-    site_name = os.getenv("OPENROUTER_SITE_NAME", llm.openrouter_site_name or "").strip()
+    site_name = os.getenv(
+        "OPENROUTER_SITE_NAME", llm.openrouter_site_name or ""
+    ).strip()
     if site_url:
         headers["HTTP-Referer"] = site_url
     if site_name:
@@ -79,7 +83,9 @@ def _openrouter_chat(
     try:
         return str(data["choices"][0]["message"]["content"]).strip()
     except (KeyError, IndexError, TypeError) as e:
-        raise LLMError(f"Unexpected OpenRouter response shape: {repr(data)[:500]}") from e
+        raise LLMError(
+            f"Unexpected OpenRouter response shape: {repr(data)[:500]}"
+        ) from e
 
 
 def _ollama_chat(

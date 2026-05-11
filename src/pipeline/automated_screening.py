@@ -110,13 +110,23 @@ def _fit_and_count(
     estimators: list[tuple[str, object]] = [
         ("ols", LinearRegression()),
         ("ridge", Ridge(alpha=1.0, random_state=0)),
-        ("lasso", Pipeline([("sc", StandardScaler()), ("m", Lasso(alpha=0.01, random_state=0))])),
+        (
+            "lasso",
+            Pipeline(
+                [("sc", StandardScaler()), ("m", Lasso(alpha=0.01, random_state=0))]
+            ),
+        ),
         (
             "elasticnet",
             Pipeline(
                 [
                     ("sc", StandardScaler()),
-                    ("m", ElasticNet(alpha=0.01, l1_ratio=0.5, random_state=0, max_iter=5000)),
+                    (
+                        "m",
+                        ElasticNet(
+                            alpha=0.01, l1_ratio=0.5, random_state=0, max_iter=5000
+                        ),
+                    ),
                 ]
             ),
         ),
