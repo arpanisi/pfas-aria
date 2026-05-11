@@ -33,6 +33,9 @@ class ProcessedChunk:
     chunk_index: int
     text: str
     n_tokens: int
+    content_hash: str
+    source_type: str = "uploaded"
+    source_provider: str = "manual_upload"
     metadata: dict = field(default_factory=dict)
 
 
@@ -94,12 +97,16 @@ class CorpusProcessor:
             raw_text = self._extract_text(pdf_path)
             title = self._extract_title(raw_text, pdf_path.stem)
             chunks = self._split_into_chunks(raw_text)
+            paper_hash = self._hash_file(pdf_path)
 
             processed_chunks = []
             total_tokens = 0
 
             for i, text in enumerate(chunks):
-                doc_id = hashlib.md5(f"{pdf_path.name}_{i}".encode()).hexdigest()[:12]
+                chunk_hash = hashlib.sha256(
+                    f"{paper_hash}:{i}:{text}".encode("utf-8")
+                ).hexdigest()
+                doc_id = hashlib.sha256(f"{paper_hash}:{i}".encode()).hexdigest()[:16]
                 n_tokens = max(1, len(text) // 4)
                 total_tokens += n_tokens
 
@@ -111,11 +118,18 @@ class CorpusProcessor:
                         chunk_index=i,
                         text=text,
                         n_tokens=n_tokens,
+                        content_hash=chunk_hash,
+                        source_type="uploaded",
+                        source_provider="manual_upload",
                         metadata={
                             "source_file": pdf_path.name,
                             "title": title,
                             "chunk_index": i,
                             "total_chunks": len(chunks),
+                            "paper_content_hash": paper_hash,
+                            "content_hash": chunk_hash,
+                            "source_type": "uploaded",
+                            "source_provider": "manual_upload",
                         },
                     )
                 )
@@ -170,6 +184,14 @@ class CorpusProcessor:
         return results
 
     # ── Private helpers ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def _hash_file(path: Path) -> str:
+        sha256 = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                sha256.update(chunk)
+        return sha256.hexdigest()
 
     def _extract_text(self, path: Path) -> str:
         pages = []

@@ -9,7 +9,7 @@ export function CorpusPage() {
 
   const onDrop = useCallback(async (files: File[]) => {
     for (const f of files) {
-      try { await uploadPaper(f); toast.success(`${f.name} queued`); }
+      try { const result = await uploadPaper(f); toast.success(`${f.name}: ${result.status}`); }
       catch { toast.error(`Failed: ${f.name}`); }
     }
     refetch();
@@ -34,7 +34,7 @@ export function CorpusPage() {
         <input {...getInputProps()} />
         <div className="dz-icon">📄</div>
         <div className="dz-text">Drop PDFs to add to corpus</div>
-        <div className="dz-hint">Indexed automatically on next pipeline run</div>
+        <div className="dz-hint">Indexed immediately into the corpus</div>
       </div>
 
       <div className="paper-list">
