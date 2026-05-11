@@ -93,3 +93,16 @@ export const uploadPaper = async (
   });
   return data;
 };
+
+export async function deletePaper(paperId: string): Promise<void> {
+  await apiClient.delete(`/corpus/${encodeURIComponent(paperId)}`);
+}
+
+export async function clearCorpus(): Promise<{
+  status: string;
+  deleted_papers: number;
+  deleted_chunks: number;
+}> {
+  const { data } = await apiClient.delete("/corpus");
+  return data;
+}

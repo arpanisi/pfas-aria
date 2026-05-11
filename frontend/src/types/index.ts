@@ -14,6 +14,8 @@ export interface DatasetPreview {
   n_rows: number;
   n_cols: number;
   columns: ColumnInfo[];
+  /** 0-based Excel row used as column headers; omitted for CSV/TSV */
+  excel_header_row?: number | null;
 }
 
 export interface RunConfig {

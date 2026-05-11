@@ -13,7 +13,7 @@ export function AppLayout() {
   return (
     <div className="app-shell">
       <Sidebar />
-      <main style={{ flex: 1, overflow: "hidden", display: "contents" }}>
+      <main className="main-outlet">
         <Outlet />
       </main>
     </div>

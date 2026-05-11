@@ -19,6 +19,7 @@ from sqlalchemy import select
 from src.api.deps import CurrentUser, DBSession
 from src.db.orm import Run
 from src.db.redis_client import get_run_status, set_run_status
+from src.ingestion.spreadsheet_infer import read_excel_smart
 from src.utils.logging import get_logger
 from src.utils.paths import RAW_DIR
 
@@ -43,6 +44,8 @@ class DatasetPreview(BaseModel):
     n_rows: int
     n_cols: int
     columns: list[ColumnInfo]
+    # 0-based Excel row used as column headers (0 = first row). Omitted for CSV/TSV.
+    excel_header_row: int | None = None
 
 
 class RunConfig(BaseModel):
@@ -91,13 +94,19 @@ async def upload_dataset(
 
     content = await file.read()
 
+    excel_header_row: int | None = None
     try:
         if suffix == "csv":
             df = pd.read_csv(io.BytesIO(content), low_memory=False)
         elif suffix == "tsv":
             df = pd.read_csv(io.BytesIO(content), sep="\t", low_memory=False)
         else:
-            df = pd.read_excel(io.BytesIO(content))
+            df, excel_header_row = read_excel_smart(content)
+            if excel_header_row:
+                logger.info(
+                    f"Excel {file.filename}: inferred column header row index {excel_header_row} "
+                    f"(skipped {excel_header_row} preamble row(s))"
+                )
     except Exception as e:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, f"Cannot parse file: {e}"
@@ -129,6 +138,7 @@ async def upload_dataset(
         n_rows=len(df),
         n_cols=len(df.columns),
         columns=columns,
+        excel_header_row=excel_header_row if suffix in {"xlsx", "xls"} else None,
     )
 
 

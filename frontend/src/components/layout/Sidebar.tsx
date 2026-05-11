@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { UserButton, useUser } from "@clerk/clerk-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "@/store/theme";
 import { useDropzone } from "react-dropzone";
@@ -13,15 +14,21 @@ const NAV = [
 
 export function Sidebar() {
   const { dark, toggle } = useTheme();
+  const { user } = useUser();
   const navigate = useNavigate();
   const location = useLocation();
+
+  const accountLine =
+    user?.primaryEmailAddress?.emailAddress ??
+    user?.username ??
+    (user?.firstName ? `${user.firstName}${user.lastName ? ` ${user.lastName}` : ""}` : null);
 
   const onDropData = useCallback(async (files: File[]) => {
     if (!files[0]) return;
     try {
-      await uploadDataset(files[0]);
+      const preview = await uploadDataset(files[0]);
       toast.success(`${files[0].name} uploaded`);
-      navigate("/upload");
+      navigate("/upload", { state: { preview } });
     } catch {
       toast.error("Upload failed");
     }
@@ -82,6 +89,25 @@ export function Sidebar() {
       ))}
 
       <div className="sb-footer">
+        <div className="sb-account">
+          <div className="sb-account-meta">
+            <span className="sb-account-heading">Profile</span>
+            <span className="sb-account-email" title={accountLine ?? undefined}>
+              {accountLine ?? "Signed in"}
+            </span>
+          </div>
+          <div className="sb-user-button-wrap">
+            <UserButton
+              afterSignOutUrl="/"
+              appearance={{
+                elements: {
+                  userButtonAvatarBox: "sb-clerk-avatar",
+                  userButtonTrigger: "sb-clerk-trigger",
+                },
+              }}
+            />
+          </div>
+        </div>
         <div className="toggle-row">
           <span className="toggle-lbl">{dark ? "Dark" : "Light"} mode</span>
           <label className="toggle-switch">

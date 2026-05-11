@@ -18,6 +18,7 @@ import pandas as pd
 from src.etl.experimental.schema import ExperimentalDataValidator
 from src.etl.experimental.transformer import ExperimentalTransformer
 from src.ingestion.data_loader import ColumnProfile, DataBundle
+from src.ingestion.spreadsheet_infer import read_excel_smart
 from src.utils.config import get_settings
 from src.utils.exceptions import DataFileNotFoundError, IngestionError
 from src.utils.logging import get_logger
@@ -142,7 +143,7 @@ class ExperimentalETL:
             elif path.suffix == ".tsv":
                 df = pd.read_csv(path, sep="\t", low_memory=False)
             elif path.suffix in {".xlsx", ".xls"}:
-                df = pd.read_excel(path)
+                df, _ = read_excel_smart(path)
             else:
                 raise IngestionError(f"Unsupported: {path.suffix}")
         except Exception as e:

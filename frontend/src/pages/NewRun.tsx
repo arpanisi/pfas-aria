@@ -1,14 +1,22 @@
-import { useCallback, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useDropzone } from "react-dropzone";
 import toast from "react-hot-toast";
 import { useUploadDataset, useStartRun } from "@/hooks/usePipeline";
+import {
+  clearNewRunDraft,
+  loadNewRunDraft,
+  saveNewRunDraft,
+} from "@/lib/newRunDraft";
 import type { DatasetPreview } from "@/types";
 
 type Step = "upload" | "configure" | "settings";
 
+type UploadLocationState = { preview?: DatasetPreview };
+
 export function NewRun() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { mutateAsync: upload, isPending: uploading } = useUploadDataset();
   const { mutateAsync: startRun, isPending: launching } = useStartRun();
 
@@ -21,17 +29,60 @@ export function NewRun() {
   const [hypPerRound, setHypPerRound] = useState(6);
   const [threshold, setThreshold] = useState(0.75);
 
+  const hydrateOnceRef = useRef(false);
+
+  const applyPreviewFromUpload = useCallback((p: DatasetPreview) => {
+    setPreview(p);
+    const nums = p.columns.filter((c) => c.is_numeric).map((c) => c.name);
+    setFeatures(nums);
+    setStep("configure");
+  }, []);
+
+  useEffect(() => {
+    const navPreview = (location.state as UploadLocationState | null)?.preview;
+    if (navPreview) {
+      applyPreviewFromUpload(navPreview);
+      navigate(location.pathname, { replace: true, state: {} });
+      hydrateOnceRef.current = true;
+      return;
+    }
+    if (hydrateOnceRef.current) return;
+    hydrateOnceRef.current = true;
+    const draft = loadNewRunDraft();
+    if (!draft) return;
+    setPreview(draft.preview);
+    setStep(draft.step);
+    setOutcome(draft.outcome);
+    setFeatures(draft.features);
+    setRunName(draft.runName);
+    setMaxRounds(draft.maxRounds);
+    setHypPerRound(draft.hypPerRound);
+    setThreshold(draft.threshold);
+  }, [location.state, location.pathname, navigate, applyPreviewFromUpload]);
+
+  useEffect(() => {
+    if (!preview) return;
+    saveNewRunDraft({
+      v: 1,
+      preview,
+      step,
+      outcome,
+      features,
+      runName,
+      maxRounds,
+      hypPerRound,
+      threshold,
+    });
+  }, [preview, step, outcome, features, runName, maxRounds, hypPerRound, threshold]);
+
   const onDrop = useCallback(async (files: File[]) => {
     if (!files[0]) return;
     try {
       const p = await upload(files[0]);
-      setPreview(p);
-      const nums = p.columns.filter((c) => c.is_numeric).map((c) => c.name);
-      setFeatures(nums);
-      setStep("configure");
+      applyPreviewFromUpload(p);
       toast.success(`Loaded ${p.n_rows.toLocaleString()} rows`);
     } catch { toast.error("Upload failed"); }
-  }, [upload]);
+  }, [upload, applyPreviewFromUpload]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -58,6 +109,7 @@ export function NewRun() {
         strict_validation: false,
       });
       toast.success("Pipeline started!");
+      clearNewRunDraft();
       navigate(`/runs/${run_id}`);
     } catch { toast.error("Failed to start run"); }
   };
@@ -80,25 +132,60 @@ export function NewRun() {
       </div>
 
       {step === "upload" && (
-        <div {...getRootProps()} className={`dropzone-large ${isDragActive ? "active" : ""}`}>
-          <input {...getInputProps()} />
-          <div className="dz-icon">⬆</div>
-          <div className="dz-text">{uploading ? "Uploading..." : "Drop your dataset here"}</div>
-          <div className="dz-hint">CSV, TSV, Excel · up to 100k rows</div>
+        <div className="new-run-upload">
+          {preview && (
+            <div className="dataset-bar" style={{ marginBottom: 16 }}>
+              <span>{preview.filename}</span>
+              <span>{preview.n_rows.toLocaleString()} rows</span>
+              <span>{preview.n_cols} columns</span>
+              {preview.excel_header_row != null && preview.excel_header_row > 0 && (
+                <span style={{ color: "var(--text-muted)" }}>
+                  Excel: header row {preview.excel_header_row + 1}
+                  {" "}(skipped {preview.excel_header_row} preamble row
+                  {preview.excel_header_row === 1 ? "" : "s"})
+                </span>
+              )}
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ marginLeft: "auto" }}
+                onClick={() => {
+                  clearNewRunDraft();
+                  setPreview(null);
+                  setOutcome("");
+                  setFeatures([]);
+                }}
+              >
+                Replace dataset
+              </button>
+            </div>
+          )}
+          <div {...getRootProps()} className={`dropzone-large ${isDragActive ? "active" : ""}`}>
+            <input {...getInputProps()} />
+            <div className="dz-icon">⬆</div>
+            <div className="dz-text">{uploading ? "Uploading..." : "Drop your dataset here"}</div>
+            <div className="dz-hint">CSV, TSV, Excel · up to 100k rows</div>
+          </div>
         </div>
       )}
 
       {step === "configure" && preview && (
-        <div>
+        <div className="new-run-configure">
           <div className="dataset-bar">
             <span>{preview.filename}</span>
             <span>{preview.n_rows.toLocaleString()} rows</span>
             <span>{preview.n_cols} columns</span>
+            {preview.excel_header_row != null && preview.excel_header_row > 0 && (
+              <span style={{ color: "var(--text-muted)" }}>
+                Excel header row {preview.excel_header_row + 1}
+              </span>
+            )}
             <span style={{ marginLeft: "auto", color: "var(--text-dim)" }}>
               {features.length} features selected · outcome: {outcome || "none"}
             </span>
           </div>
-          <div className="col-grid">
+          <div className="col-grid-scroll">
+            <div className="col-grid">
             {preview.columns.map((col) => (
               <div key={col.name} className="col-card">
                 <div className="col-card-header">
@@ -122,16 +209,30 @@ export function NewRun() {
                 </div>
               </div>
             ))}
+            </div>
           </div>
-          <div className="step-actions" style={{ marginTop: 16 }}>
+          <div className="step-actions" style={{ marginTop: 16, flexShrink: 0 }}>
             <button className="btn-secondary" onClick={() => setStep("upload")}>Back</button>
             <button className="btn-primary" onClick={() => setStep("settings")} disabled={!outcome || !features.length}>Continue →</button>
           </div>
         </div>
       )}
 
-      {step === "settings" && (
-        <div>
+      {step === "settings" && preview && (
+        <div className="new-run-settings">
+          <div className="dataset-bar" style={{ marginBottom: 16 }}>
+            <span>{preview.filename}</span>
+            <span>{preview.n_rows.toLocaleString()} rows</span>
+            <span>{preview.n_cols} columns</span>
+            {preview.excel_header_row != null && preview.excel_header_row > 0 && (
+              <span style={{ color: "var(--text-muted)" }}>
+                Excel header row {preview.excel_header_row + 1}
+              </span>
+            )}
+            <span style={{ marginLeft: "auto", color: "var(--text-dim)" }}>
+              Outcome: {outcome} · {features.length} features
+            </span>
+          </div>
           <div className="settings-grid">
             <div className="field">
               <label>Run Name</label>
@@ -155,7 +256,7 @@ export function NewRun() {
             <span><strong>Features:</strong> {features.length} columns selected</span>
             <span><strong>Dataset:</strong> {preview?.filename}</span>
           </div>
-          <div className="step-actions">
+          <div className="step-actions" style={{ flexShrink: 0 }}>
             <button className="btn-secondary" onClick={() => setStep("configure")}>Back</button>
             <button className="btn-primary" onClick={handleLaunch} disabled={launching || !runName.trim()}>
               {launching ? "Launching..." : "Launch Pipeline →"}
