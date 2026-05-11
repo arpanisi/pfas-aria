@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.ingestion.spreadsheet_infer import infer_excel_header_row_index, read_excel_smart
-
+from src.ingestion.spreadsheet_infer import (
+    infer_excel_header_row_index,
+    read_excel_smart,
+)
 
 def test_infer_header_row_first_row_is_header() -> None:
     raw = pd.DataFrame(
