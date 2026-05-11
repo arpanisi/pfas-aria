@@ -5,6 +5,7 @@ import type {
   CorpusStats,
   DatasetPreview,
   Hypothesis,
+  LegacySegmentationPreview,
   ModelResult,
   RunConfig,
   RunStatus,
@@ -18,6 +19,15 @@ export const uploadDataset = async (file: File): Promise<DatasetPreview> => {
   formData.append("file", file);
   const { data } = await apiClient.post("/pipeline/upload", formData, {
     headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+};
+
+export const getLegacySegmentationPreview = async (
+  filename: string
+): Promise<LegacySegmentationPreview> => {
+  const { data } = await apiClient.get("/pipeline/legacy-segmentation-preview", {
+    params: { filename },
   });
   return data;
 };
@@ -93,3 +103,16 @@ export const uploadPaper = async (
   });
   return data;
 };
+
+export async function deletePaper(paperId: string): Promise<void> {
+  await apiClient.delete(`/corpus/${encodeURIComponent(paperId)}`);
+}
+
+export async function clearCorpus(): Promise<{
+  status: string;
+  deleted_papers: number;
+  deleted_chunks: number;
+}> {
+  const { data } = await apiClient.delete("/corpus");
+  return data;
+}

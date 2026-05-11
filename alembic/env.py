@@ -4,9 +4,9 @@ import asyncio
 import os
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from alembic import context
 from src.api.database import Base
 from src.api.models import orm  # noqa: F401 — import models to register them
 

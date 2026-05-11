@@ -7,12 +7,14 @@ No assumptions about column names — everything is inferred or config-driven.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from src.ingestion.unified_experimental_sheet import load_excel_bytes_with_layout
 from src.utils.config import get_settings
 from src.utils.exceptions import DataFileNotFoundError, IngestionError
 from src.utils.logging import get_logger
@@ -136,13 +138,20 @@ class DataLoader:
     # ── Private helpers ───────────────────────────────────────────────────────
 
     def _resolve_path(self) -> Path:
-        p = Path(self.cfg.file_path)
-        if not p.is_absolute():
-            p = PROJECT_ROOT / p
+        env_path = os.environ.get("ARIA_DATA_FILE", "").strip()
+        if env_path:
+            p = Path(env_path).expanduser()
+            if not p.is_absolute():
+                p = PROJECT_ROOT / p
+        else:
+            p = Path(self.cfg.file_path)
+            if not p.is_absolute():
+                p = PROJECT_ROOT / p
         if not p.exists():
             raise DataFileNotFoundError(
                 f"Data file not found: {p}\n"
-                f"Update 'data.file_path' in configs/data_config.yaml"
+                f"Update 'data.file_path' in configs/data_config.yaml "
+                f"or set ARIA_DATA_FILE for UI uploads."
             )
         if p.suffix not in self.SUPPORTED_EXTENSIONS:
             raise IngestionError(
@@ -151,6 +160,11 @@ class DataLoader:
             )
         return p
 
+    def _effective_outcome_name(self) -> str:
+        raw = os.environ.get("ARIA_OUTCOME_VARIABLE", "").strip()
+        target = raw if raw else str(self.cfg.outcome_variable)
+        return target.strip().lower().replace(" ", "_")
+
     def _read_file(self, path: Path) -> pd.DataFrame:
         try:
             if path.suffix == ".csv":
@@ -158,7 +172,23 @@ class DataLoader:
             elif path.suffix == ".tsv":
                 return pd.read_csv(path, sep="\t")
             elif path.suffix in {".xlsx", ".xls"}:
-                return pd.read_excel(path, skiprows=1)
+                content = path.read_bytes()
+                df, header_i, unified = load_excel_bytes_with_layout(content)
+                if unified is not None:
+                    logger.info(
+                        "Excel %s: unified independent/dependent layout "
+                        "(header row index %s)",
+                        path.name,
+                        unified.name_row_index,
+                    )
+                elif header_i:
+                    logger.info(
+                        "Excel %s: using row %s as header (skipped %s preamble row(s))",
+                        path.name,
+                        header_i,
+                        header_i,
+                    )
+                return df
         except Exception as e:
             raise IngestionError(f"Failed to read {path}: {e}") from e
 
@@ -192,12 +222,13 @@ class DataLoader:
         return df
 
     def _resolve_outcome(self, df: pd.DataFrame) -> str:
-        outcome = self.cfg.outcome_variable
+        outcome = self._effective_outcome_name()
         if outcome not in df.columns:
             raise IngestionError(
                 f"Outcome variable '{outcome}' not found in dataset.\n"
                 f"Available columns: {list(df.columns)}\n"
-                f"Update 'data.outcome_variable' in configs/data_config.yaml"
+                f"Update 'data.outcome_variable' in configs/data_config.yaml "
+                f"or set ARIA_OUTCOME_VARIABLE when launching from the UI."
             )
         return outcome
 

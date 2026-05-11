@@ -1,10 +1,11 @@
 import { useCallback } from "react";
 import { useDropzone } from "react-dropzone";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { getCorpusStats, uploadPaper } from "@/api/endpoints";
+import { clearCorpus, deletePaper, getCorpusStats, uploadPaper } from "@/api/endpoints";
 
 export function CorpusPage() {
+  const queryClient = useQueryClient();
   const { data: stats, refetch } = useQuery({ queryKey: ["corpus"], queryFn: getCorpusStats });
 
   const onDrop = useCallback(async (files: File[]) => {
@@ -15,6 +16,34 @@ export function CorpusPage() {
     refetch();
   }, [refetch]);
 
+  const onDeletePaper = async (paperId: string) => {
+    try {
+      await deletePaper(paperId);
+      await queryClient.invalidateQueries({ queryKey: ["corpus"] });
+      toast.success("Paper deleted");
+    } catch (err) {
+      console.error("Failed to delete paper", err);
+      toast.error("Failed to delete paper");
+    }
+  };
+  
+  const onClearCorpus = async () => {
+    const confirmed = window.confirm(
+      "Clear the entire corpus? This deletes all papers and chunks."
+    );
+  
+    if (!confirmed) return;
+  
+    try {
+      const result = await clearCorpus();
+      toast.success(`Cleared ${result.deleted_papers} papers`);
+      refetch();
+    } catch (err) {
+      console.error("Failed to clear corpus", err);
+      toast.error("Failed to clear corpus");
+    }
+  };
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop, accept: { "application/pdf": [".pdf"] },
   });
@@ -23,6 +52,7 @@ export function CorpusPage() {
     <div className="corpus-page">
       <div className="page-header">
         <h1 className="page-title">Corpus</h1>
+        <button className="btn danger" onClick={onClearCorpus}>Clear corpus</button>
         <div className="corpus-stats">
           <span className="stat-pill">{stats?.n_papers ?? 0} papers</span>
           <span className="stat-pill">{(stats?.n_chunks_total ?? 0).toLocaleString()} chunks</span>
@@ -40,14 +70,28 @@ export function CorpusPage() {
       <div className="paper-list">
         {stats?.papers.map((p) => (
           <div key={p.id} className="paper-card">
-            <span className="paper-icon">📄</span>
-            <div>
+            <span className="paper-icon" aria-hidden>
+              📄
+            </span>
+            <div className="paper-card-body">
               <div className="paper-title">{p.title ?? p.filename}</div>
               <div className="paper-meta">
                 {p.n_chunks} chunks · {p.n_tokens.toLocaleString()} tokens
                 {p.embedding_model && ` · ${p.embedding_model}`}
               </div>
             </div>
+            <button
+              type="button"
+              className="paper-delete"
+              title="Delete paper"
+              aria-label={`Remove ${p.filename}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                void onDeletePaper(p.id);
+              }}
+            >
+              ×
+            </button>
           </div>
         ))}
       </div>
