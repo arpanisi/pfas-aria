@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  deleteAllScreeningRuns,
+  deleteRun,
   getCitations,
   getConvergence,
   getHypotheses,
@@ -7,10 +9,16 @@ import {
   getRunStatus,
   getRunSummary,
   listRuns,
+  postScreeningGrounded,
+  runAutomatedScreeningIteration,
   startRun,
   uploadDataset,
 } from "@/api/endpoints";
-import type { RunConfig } from "@/types";
+import type {
+  AutomatedScreeningIterationRequest,
+  RunConfig,
+  ScreeningGroundedRequest,
+} from "@/types";
 
 // ── Upload ────────────────────────────────────────────────────────────────────
 
@@ -29,6 +37,58 @@ export function useStartRun() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["runs"] });
     },
+  });
+}
+
+export function useAutomatedScreeningIteration() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: AutomatedScreeningIterationRequest) =>
+      runAutomatedScreeningIteration(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["runs"] });
+    },
+  });
+}
+
+export function useDeleteRun() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => deleteRun(runId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["runs"] });
+    },
+  });
+}
+
+export function useClearAllScreeningRuns() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => deleteAllScreeningRuns(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["runs"] });
+    },
+  });
+}
+
+export function useScreeningGrounded(
+  params: ScreeningGroundedRequest | null,
+  enabled: boolean
+) {
+  return useQuery({
+    queryKey: [
+      "screeningGrounded",
+      params?.filename,
+      params?.regime_id,
+      params?.run_name,
+      params?.run_id,
+    ],
+    queryFn: () => postScreeningGrounded(params!),
+    enabled:
+      Boolean(enabled && params) &&
+      Boolean(params!.filename) &&
+      Number.isFinite(params!.regime_id),
+    retry: 0,
   });
 }
 

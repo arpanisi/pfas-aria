@@ -1,8 +1,7 @@
 """
 Retriever.
 High-level interface that agents use to query the corpus.
-Abstracts away ChromaDB details — agents just ask questions.
-Caches query results in Redis to avoid redundant ChromaDB hits
+Caches query results in Redis to avoid redundant vector searches
 across pipeline rounds (same query asked multiple times).
 """
 
@@ -27,7 +26,7 @@ class Retriever:
     The single interface all agents use to access the paper corpus.
     Provides domain-aware retrieval methods tailored to each agent's needs.
     Results are cached in Redis — same query in round 1 and round 3
-    hits the cache instead of ChromaDB.
+    hits the cache instead of hitting the vector store again.
     """
 
     def __init__(self, vector_store: VectorStore) -> None:
@@ -188,12 +187,13 @@ class Retriever:
 
 
 def get_retriever(vector_store: VectorStore | None = None) -> Retriever:
-    """Return the singleton Retriever. Pass vector_store on first call."""
+    """Return the Retriever. Pass ``vector_store`` whenever the index may have changed."""
     global _instance
-    if _instance is None:
-        if vector_store is None:
-            raise RuntimeError(
-                "Retriever not initialized. Pass a VectorStore on first call."
-            )
+    if vector_store is not None:
         _instance = Retriever(vector_store)
+        return _instance
+    if _instance is None:
+        raise RuntimeError(
+            "Retriever not initialized. Pass a VectorStore on first call."
+        )
     return _instance

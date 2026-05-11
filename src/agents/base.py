@@ -11,10 +11,9 @@ import re
 from abc import ABC, abstractmethod
 from typing import Any
 
-import requests
-
 from src.utils.config import get_settings
 from src.utils.exceptions import LLMError
+from src.utils.llm_client import chat_completion
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -34,64 +33,22 @@ class BaseAgent(ABC):
         """Call the configured LLM and return the response text."""
         logger.debug(f"[{self.name}] LLM call — prompt length: {len(prompt)}")
 
+        messages: list[dict[str, str]] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
         try:
-            if self.llm_cfg.provider == "ollama":
-                return self._call_ollama(prompt, system)
-            elif self.llm_cfg.provider == "runpod":
-                return self._call_runpod(prompt, system)
-            else:
-                raise LLMError(f"Unknown LLM provider: {self.llm_cfg.provider}")
+            return chat_completion(
+                messages,
+                max_tokens=self.llm_cfg.max_tokens,
+                temperature=self.llm_cfg.temperature,
+                timeout=self.llm_cfg.request_timeout,
+            )
         except LLMError:
             raise
         except Exception as e:
             raise LLMError(f"[{self.name}] LLM call failed: {e}") from e
-
-    def _call_ollama(self, prompt: str, system: str | None) -> str:
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
-
-        response = requests.post(
-            "http://localhost:11434/api/chat",
-            json={
-                "model": self.llm_cfg.model,
-                "messages": messages,
-                "stream": False,
-                "options": {
-                    "temperature": self.llm_cfg.temperature,
-                    "num_predict": self.llm_cfg.max_tokens,
-                },
-            },
-            timeout=self.llm_cfg.request_timeout,
-        )
-        response.raise_for_status()
-        return str(response.json()["message"]["content"])
-
-    def _call_runpod(self, prompt: str, system: str | None) -> str:
-        import os
-
-        endpoint = self.llm_cfg.runpod_endpoint or os.getenv("RUNPOD_ENDPOINT")
-        if not endpoint:
-            raise LLMError("RUNPOD_ENDPOINT not set in .env")
-
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
-
-        response = requests.post(
-            f"{endpoint}/chat/completions",
-            json={
-                "model": self.llm_cfg.model,
-                "messages": messages,
-                "temperature": self.llm_cfg.temperature,
-                "max_tokens": self.llm_cfg.max_tokens,
-            },
-            timeout=self.llm_cfg.request_timeout,
-        )
-        response.raise_for_status()
-        return str(response.json()["choices"][0]["message"]["content"])
 
     # ── JSON parsing ─────────────────────────────────────────────────────────
 

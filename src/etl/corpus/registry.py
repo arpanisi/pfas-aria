@@ -1,7 +1,7 @@
 """
 Corpus Paper Registry.
 Tracks every processed PDF by content hash in PostgreSQL.
-Prevents re-processing papers already indexed in ChromaDB.
+Prevents re-processing papers already indexed in PostgreSQL / MongoDB.
 Handles deduplication by content hash — same paper uploaded twice is safe.
 """
 

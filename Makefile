@@ -23,7 +23,7 @@ help:
 	@echo "  make run-api       Start the FastAPI backend (dev mode)"
 	@echo "  make run-frontend  Start the React frontend (dev mode)"
 	@echo "  make dvc-init      Initialise DVC for data versioning"
-	@echo "  make db-up         Start local database stack (Postgres, Mongo, Redis, Chroma)"
+	@echo "  make db-up         Start local database stack (Postgres, Mongo, Redis)"
 	@echo "  make db-down       Stop local database stack"
 	@echo "  make db-logs       Follow database logs"
 	@echo "  make db-reset      Wipe all local database volumes"
@@ -74,7 +74,6 @@ db-up:
 	@echo "   PostgreSQL : localhost:5432"
 	@echo "   MongoDB    : localhost:27017"
 	@echo "   Redis      : localhost:6379"
-	@echo "   ChromaDB   : localhost:8001"
 
 db-down:
 	docker compose down
@@ -96,7 +95,6 @@ dvc-init:
 clean:
 	rm -rf data/outputs/logs/*
 	rm -rf data/outputs/reports/*
-	rm -rf data/outputs/chroma/*
 	rm -rf mlflow/
 	rm -rf .pytest_cache/
 	rm -rf htmlcov/

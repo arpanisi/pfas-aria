@@ -3,8 +3,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useDropzone } from "react-dropzone";
 import toast from "react-hot-toast";
-import { getLegacySegmentationPreview } from "@/api/endpoints";
-import { useUploadDataset, useStartRun } from "@/hooks/usePipeline";
+import { getCorpusStats, getLegacySegmentationPreview } from "@/api/endpoints";
+import { useAutomatedScreeningIteration, useUploadDataset } from "@/hooks/usePipeline";
 import {
   clearNewRunDraft,
   loadNewRunDraft,
@@ -12,7 +12,7 @@ import {
 } from "@/lib/newRunDraft";
 import type { ColumnInfo, DatasetPreview, LegacyRegimeSummary } from "@/types";
 
-type Step = "upload" | "configure" | "settings";
+type Step = "upload" | "configure" | "hypotheses";
 
 type UploadLocationState = { preview?: DatasetPreview };
 
@@ -20,16 +20,33 @@ export function NewRun() {
   const navigate = useNavigate();
   const location = useLocation();
   const { mutateAsync: upload, isPending: uploading } = useUploadDataset();
-  const { mutateAsync: startRun, isPending: launching } = useStartRun();
+  const screeningMutation = useAutomatedScreeningIteration();
 
   const [step, setStep] = useState<Step>("upload");
   const [preview, setPreview] = useState<DatasetPreview | null>(null);
   const [outcome, setOutcome] = useState("");
   const [features, setFeatures] = useState<string[]>([]);
   const [runName, setRunName] = useState("");
-  const [maxRounds, setMaxRounds] = useState(10);
-  const [hypPerRound, setHypPerRound] = useState(6);
   const [threshold, setThreshold] = useState(0.75);
+  const [hypothesesTestedCount, setHypothesesTestedCount] = useState<number | null>(null);
+  const [screeningRunId, setScreeningRunId] = useState<string | null>(null);
+
+  const [progressMsgIdx, setProgressMsgIdx] = useState(0);
+  const progressMessages = [
+    "Scanning inputs, outputs, and regime structure…",
+    "Exploring variable mixes and multicollinearity patterns…",
+    "Building the hypothesis space across regimes…",
+    "Fitting statistical models and counting tests…",
+  ] as const;
+
+  useEffect(() => {
+    if (!screeningMutation.isPending) return;
+    setProgressMsgIdx(0);
+    const id = window.setInterval(() => {
+      setProgressMsgIdx((i) => (i + 1) % progressMessages.length);
+    }, 2200);
+    return () => window.clearInterval(id);
+  }, [screeningMutation.isPending, progressMessages.length]);
 
   const hydrateOnceRef = useRef(false);
 
@@ -57,9 +74,8 @@ export function NewRun() {
     setOutcome(draft.outcome);
     setFeatures(draft.features);
     setRunName(draft.runName);
-    setMaxRounds(draft.maxRounds);
-    setHypPerRound(draft.hypPerRound);
     setThreshold(draft.threshold);
+    setScreeningRunId(draft.screeningRunId ?? null);
   }, [location.state, location.pathname, navigate, applyPreviewFromUpload]);
 
   useEffect(() => {
@@ -71,11 +87,10 @@ export function NewRun() {
       outcome,
       features,
       runName,
-      maxRounds,
-      hypPerRound,
       threshold,
+      screeningRunId,
     });
-  }, [preview, step, outcome, features, runName, maxRounds, hypPerRound, threshold]);
+  }, [preview, step, outcome, features, runName, threshold, screeningRunId]);
 
   const onDrop = useCallback(async (files: File[]) => {
     if (!files[0]) return;
@@ -98,7 +113,8 @@ export function NewRun() {
   const segQuery = useQuery({
     queryKey: ["legacySegmentation", preview?.filename],
     queryFn: () => getLegacySegmentationPreview(preview!.filename),
-    enabled: step === "configure" && !!preview?.filename,
+    enabled:
+      !!preview?.filename && (step === "configure" || step === "hypotheses"),
     staleTime: 60_000,
     retry: 0,
   });
@@ -172,6 +188,67 @@ export function NewRun() {
       ((segQuery.data.input_cols?.length ?? 0) > 0 || (segQuery.data.output_cols?.length ?? 0) > 0),
   );
 
+  const screeningCombinationsPreview = useMemo(() => {
+    const d = segQuery.data;
+    if (!d?.regimes?.length || !preview) return [];
+    const lines: string[] = [];
+    const hasPanel =
+      preview.columns.some((c) => /experiment|batch|^run$/i.test(c.name)) &&
+      preview.columns.some((c) => /time|day|hour/i.test(c.name));
+    const mgInputs = d.input_cols.filter((c) => {
+      const lo = c.toLowerCase();
+      return lo.includes("mg/l") || lo.includes("mg_l");
+    });
+    const numericInputs = d.input_cols.filter((n) => columnByName.get(n)?.is_numeric);
+    const trunc = (xs: string[], max = 5) =>
+      xs.length <= max
+        ? xs.join(", ")
+        : `${xs.slice(0, max).join(", ")} … (+${xs.length - max} more)`;
+    const numericOutputs = d.output_cols.filter((n) => columnByName.get(n)?.is_numeric);
+    const regimesForPreview =
+      selectedRegimeId != null
+        ? d.regimes.filter((r) => r.regime_id === selectedRegimeId)
+        : d.regimes;
+    for (const r of regimesForPreview) {
+      const outsForRegime = numericOutputs.filter((o) => {
+        if (!r.non_constant_output_cols.length) return true;
+        return r.non_constant_output_cols.includes(o);
+      });
+      const insForRegime = mgInputs.filter((c) => {
+        if (!r.non_constant_input_cols.length) return true;
+        return r.non_constant_input_cols.includes(c);
+      });
+      let inputSide: string[];
+      let usedNumericPool = false;
+      if (insForRegime.length >= 2) inputSide = insForRegime;
+      else if (mgInputs.length >= 2) inputSide = mgInputs;
+      else if (numericInputs.length >= 2) {
+        inputSide = numericInputs;
+        usedNumericPool = true;
+      } else continue;
+      const panelNote = hasPanel
+        ? " · panel-style fits when experiment + time columns exist"
+        : "";
+      const inputLabel = usedNumericPool ? "numeric predictors" : "mg/L predictors";
+      for (const o of outsForRegime) {
+        lines.push(
+          `Regime ${r.regime_id} → ${o} · ${inputLabel}: ${trunc(inputSide)}${panelNote}`,
+        );
+      }
+    }
+    return lines;
+  }, [segQuery.data, preview, columnByName, selectedRegimeId]);
+
+  const segmentationReady = Boolean(
+    preview &&
+      segQuery.isFetched &&
+      !segQuery.isError &&
+      (segQuery.data?.regimes?.length ?? 0) > 0 &&
+      selectedRegimeId != null,
+  );
+
+  const configureCanContinue = segmentationReady;
+
   const renderReadonlyColCard = (col: ColumnInfo) => (
     <div key={col.name} className="col-card col-card-readonly">
       <div className="col-card-header">
@@ -187,24 +264,52 @@ export function NewRun() {
     </div>
   );
 
-  const steps: Step[] = ["upload", "configure", "settings"];
+  const steps: Step[] = ["upload", "configure", "hypotheses"];
 
   const handleLaunch = async () => {
-    if (!preview || !outcome || !features.length || !runName.trim()) {
-      toast.error("Fill in all required fields"); return;
+    if (!preview || selectedRegimeId == null) {
+      toast.error("Select a regime on the Configure step.");
+      return;
+    }
+    setHypothesesTestedCount(null);
+    try {
+      const r = await screeningMutation.mutateAsync({
+        filename: preview.filename,
+        run_name: runName.trim() || "Untitled screening",
+        regime_id: selectedRegimeId,
+        convergence_threshold: threshold,
+      });
+      setHypothesesTestedCount(r.hypotheses_tested);
+      setScreeningRunId(r.run_id ?? null);
+      toast.success("Screening iteration complete");
+    } catch {
+      toast.error("Screening failed");
+    }
+  };
+
+  const handleViewScreeningResults = async () => {
+    if (!preview || selectedRegimeId == null) {
+      toast.error("Missing dataset or regime.");
+      return;
     }
     try {
-      const { run_id } = await startRun({
-        run_name: runName, filename: preview.filename,
-        outcome_variable: outcome, feature_columns: features,
-        exclude_columns: [], max_rounds: maxRounds,
-        convergence_threshold: threshold, hypotheses_per_round: hypPerRound,
-        strict_validation: false,
+      const stats = await getCorpusStats();
+      if ((stats.n_papers ?? 0) < 3) {
+        toast.error("Upload at least three PDF papers to the corpus to run literature grounding.");
+        navigate("/corpus?needPapers=1");
+        return;
+      }
+      const q = new URLSearchParams({
+        filename: preview.filename,
+        regimeId: String(selectedRegimeId),
       });
-      toast.success("Pipeline started!");
-      clearNewRunDraft();
-      navigate(`/runs/${run_id}`);
-    } catch { toast.error("Failed to start run"); }
+      if (screeningRunId) q.set("runId", screeningRunId);
+      navigate(`/runs/screening?${q.toString()}`, {
+        state: { runName: runName.trim() || "Untitled screening" },
+      });
+    } catch {
+      toast.error("Could not verify corpus. Try again.");
+    }
   };
 
   return (
@@ -212,7 +317,7 @@ export function NewRun() {
       <div className="page-header">
         <h1 className="page-title">New Run</h1>
         <div className="page-header-right">
-          {preview && step === "configure" && (
+          {preview && (step === "configure" || step === "hypotheses") && (
             <button
               type="button"
               className="btn-secondary new-run-header-refresh"
@@ -223,7 +328,7 @@ export function NewRun() {
             </button>
           )}
           <div className="step-pills">
-            {["Upload", "Configure", "Settings"].map((s, i) => {
+            {(["Upload", "Configure", "Hypotheses"] as const).map((s, i) => {
               const cur = steps.indexOf(step);
               return (
                 <div key={s} className={`step-pill ${i === cur ? "active" : i < cur ? "done" : ""}`}>{s}</div>
@@ -249,6 +354,8 @@ export function NewRun() {
                   setPreview(null);
                   setOutcome("");
                   setFeatures([]);
+                  setHypothesesTestedCount(null);
+                  setScreeningRunId(null);
                 }}
               >
                 Replace dataset
@@ -286,10 +393,13 @@ export function NewRun() {
             )}
             {segQuery.data && (
               <>
-                {segQuery.data.warnings.length > 0 && (
-                  <div className="seg-preview-warn">
-                    {segQuery.data.warnings.join(" ")}
-                  </div>
+                {segQuery.data.n_regimes > 0 && (
+                  <p className="seg-regime-intro">
+                    PFAS-ARIA intelligently discovers{" "}
+                    <span className="seg-regime-intro-n">{segQuery.data.n_regimes}</span>{" "}
+                    {segQuery.data.n_regimes === 1 ? "regime" : "regimes"} within the data
+                    based on common behavior
+                  </p>
                 )}
                 <div className="seg-regime-tabs" role="tablist" aria-label="Regimes">
                   {segQuery.data.regimes.map((r) => {
@@ -362,45 +472,116 @@ export function NewRun() {
           </div>
           <div className="step-actions" style={{ marginTop: 16, flexShrink: 0 }}>
             <button className="btn-secondary" onClick={() => setStep("upload")}>Back</button>
-            <button className="btn-primary" onClick={() => setStep("settings")} disabled={!outcome || !features.length}>Continue →</button>
+            <button
+              className="btn-primary"
+              onClick={() => {
+                setHypothesesTestedCount(null);
+                setStep("hypotheses");
+              }}
+              disabled={!configureCanContinue}
+            >
+              Continue →
+            </button>
           </div>
         </div>
       )}
 
-      {step === "settings" && preview && (
-        <div className="new-run-settings">
+      {step === "hypotheses" && preview && (
+        <div className="new-run-hypotheses">
           <div className="dataset-bar" style={{ marginBottom: 16 }}>
             <span>{preview.filename}</span>
             <span>{preview.n_rows.toLocaleString()} rows</span>
             <span>{preview.n_cols} columns</span>
           </div>
+          <p className="hyp-run-lead">
+            <strong>PFAS-ARIA</strong> screens inputs, output targets, and model families for{" "}
+            <strong>
+              {selectedRegimeId != null ? `regime ${selectedRegimeId}` : "your selected regime"}
+            </strong>{" "}
+            only — the regime you chose on Configure. The list below is limited to that slice.
+          </p>
           <div className="settings-grid">
-            <div className="field">
-              <label>Run Name</label>
-              <input className="input" value={runName} onChange={(e) => setRunName(e.target.value)} placeholder="e.g. PFAS UV Batch 1" />
+            <div className="field field-span-2">
+              <label>Run name</label>
+              <input
+                className="input"
+                value={runName}
+                onChange={(e) => setRunName(e.target.value)}
+                placeholder="e.g. PFAS UV Batch 1"
+              />
             </div>
-            <div className="field">
-              <label>Max Rounds</label>
-              <input className="input" type="number" min={1} max={20} value={maxRounds} onChange={(e) => setMaxRounds(Number(e.target.value))} />
-            </div>
-            <div className="field">
-              <label>Hypotheses per Round</label>
-              <input className="input" type="number" min={2} max={20} value={hypPerRound} onChange={(e) => setHypPerRound(Number(e.target.value))} />
-            </div>
-            <div className="field">
-              <label>Convergence Threshold</label>
-              <input className="input" type="number" min={0.5} max={1.0} step={0.05} value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} />
+            <div className="field field-span-2">
+              <label>Convergence threshold</label>
+              <input
+                className="input"
+                type="number"
+                min={0.5}
+                max={1.0}
+                step={0.05}
+                value={threshold}
+                onChange={(e) => setThreshold(Number(e.target.value))}
+              />
+              <span className="field-hint">Used for downstream ranking when the full agent pipeline runs.</span>
             </div>
           </div>
+
+          {screeningMutation.isPending && (
+            <div className="hyp-run-progress" role="status" aria-live="polite">
+              <div className="hyp-run-progress-bar indeterminate" />
+              <p className="hyp-run-progress-text">{progressMessages[progressMsgIdx]}</p>
+            </div>
+          )}
+
           <div className="run-summary-box">
-            <span><strong>Outcome:</strong> {outcome}</span>
-            <span><strong>Features:</strong> {features.length} columns selected</span>
-            <span><strong>Dataset:</strong> {preview?.filename}</span>
+            <p className="run-screening-plan-title">
+              Planned input → output combinations (regime {selectedRegimeId ?? "—"})
+            </p>
+            {!segmentationReady ? (
+              <p className="run-screening-dataset">Loading regime layout…</p>
+            ) : screeningCombinationsPreview.length > 0 ? (
+              <ol className="run-screening-plan">
+                {screeningCombinationsPreview.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ol>
+            ) : (
+              <p className="run-screening-dataset">
+                No preview lines for this regime yet. Screening still tries mg/L (or numeric)
+                predictors and numeric outputs available in the regime slice.
+              </p>
+            )}
+            <div className="run-screening-dataset">Dataset: {preview.filename}</div>
           </div>
+
+          {hypothesesTestedCount != null && !screeningMutation.isPending && (
+            <div className="hyp-run-complete">
+              <p>
+                Screening finished.{" "}
+                <strong>{hypothesesTestedCount.toLocaleString()}</strong> hypotheses were tested.
+              </p>
+              <button type="button" className="btn-primary" onClick={() => void handleViewScreeningResults()}>
+                View run history and results
+              </button>
+              <p className="hyp-run-complete-hint">
+                Opens literature-grounded screening for this regime (requires at least three corpus PDFs).
+              </p>
+            </div>
+          )}
+
           <div className="step-actions" style={{ flexShrink: 0 }}>
-            <button className="btn-secondary" onClick={() => setStep("configure")}>Back</button>
-            <button className="btn-primary" onClick={handleLaunch} disabled={launching || !runName.trim()}>
-              {launching ? "Launching..." : "Launch Pipeline →"}
+            <button className="btn-secondary" onClick={() => setStep("configure")}>
+              Back
+            </button>
+            <button
+              className="btn-primary"
+              onClick={handleLaunch}
+              disabled={
+                screeningMutation.isPending ||
+                !segmentationReady ||
+                selectedRegimeId == null
+              }
+            >
+              {screeningMutation.isPending ? "Working…" : "Run hypothesis screening"}
             </button>
           </div>
         </div>

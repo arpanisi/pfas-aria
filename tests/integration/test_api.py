@@ -68,6 +68,21 @@ class TestRoutesExist:
         )
         assert response.status_code != 404
 
+    def test_pipeline_screening_grounded_exists(self):
+        response = client.post(
+            "/pipeline/screening-grounded",
+            json={"filename": "nope.xlsx", "regime_id": 1},
+        )
+        assert response.status_code != 404
+
+    def test_pipeline_delete_run_exists(self):
+        response = client.delete("/pipeline/runs/some-id")
+        assert response.status_code != 404
+
+    def test_pipeline_delete_all_screening_runs_exists(self):
+        response = client.delete("/pipeline/runs/screening/all")
+        assert response.status_code != 404
+
     def test_corpus_stats_exists(self):
         response = client.get("/corpus/stats")
         assert response.status_code != 404

@@ -1,24 +1,31 @@
 """
-Vector Store.
-Wraps ChromaDB for persistent storage and retrieval of paper embeddings.
-Handles build, upsert, and semantic search operations.
+Vector store backed by MongoDB chunk documents.
+
+Embeddings are written to each chunk's ``embedding`` field (same schema as
+corpus upload). Semantic search uses cosine similarity against all embedded
+chunks (suitable for modest corpora).
 """
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
 
-import chromadb
-from chromadb.config import Settings as ChromaSettings
+import numpy as np
+from pymongo import MongoClient, UpdateOne
 
 from src.ingestion.corpus_loader import Document
 from src.rag.embedder import get_embedder
 from src.utils.config import get_settings
 from src.utils.exceptions import VectorStoreError
 from src.utils.logging import get_logger
-from src.utils.paths import PROJECT_ROOT
 
 logger = get_logger(__name__)
+
+MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
+MONGO_DB = os.getenv("MONGO_DB", "pfas_aria")
 
 
 @dataclass
@@ -36,66 +43,95 @@ class RetrievedChunk:
 
 class VectorStore:
     """
-    ChromaDB-backed persistent vector store for the paper corpus.
-    Supports build from scratch, incremental upsert, and semantic search.
+    MongoDB-backed store: embeds ``chunks`` rows in place and runs similarity
+    search over stored vectors.
     """
 
     def __init__(self) -> None:
         cfg = get_settings().vector_store
-        persist_dir = PROJECT_ROOT / cfg.persist_directory
-        persist_dir.mkdir(parents=True, exist_ok=True)
-
-        self._client = chromadb.PersistentClient(
-            path=str(persist_dir),
-            settings=ChromaSettings(anonymized_telemetry=False),
-        )
+        if (cfg.provider or "").lower() != "mongodb":
+            raise VectorStoreError(
+                f"Unsupported vector_store.provider={cfg.provider!r}; "
+                "only 'mongodb' is supported."
+            )
         self._collection_name = cfg.collection_name
-        self._collection = self._get_or_create_collection()
+        self._client: MongoClient[Any] = MongoClient(
+            MONGO_URL, serverSelectionTimeoutMS=5000
+        )
+        self._coll = self._client[MONGO_DB][self._collection_name]
         self._embedder = get_embedder()
+        self._model_name = self._embedder.model_name
 
+        n = self.count()
         logger.info(
-            f"VectorStore ready — collection: {self._collection_name}, "
-            f"documents: {self._collection.count()}"
+            "VectorStore (MongoDB) ready — collection=%s, embedded_chunks=%s",
+            self._collection_name,
+            n,
         )
 
-    # ── Build ─────────────────────────────────────────────────────────────────
-
-    def build(self, documents: list[Document], force_rebuild: bool = False) -> None:
-        """Embed all documents and store in ChromaDB.
-        Skips documents that already exist unless force_rebuild=True."""
-
+    def ensure_all_chunks_embedded(self, *, force_rebuild: bool = False) -> int:
+        """Embed every chunk missing vectors or on wrong model. Returns rows updated."""
         if force_rebuild:
-            self._client.delete_collection(self._collection_name)
-            self._collection = self._get_or_create_collection()
-            logger.info("Collection cleared for rebuild")
+            self._coll.update_many(
+                {},
+                {
+                    "$set": {
+                        "embedding": None,
+                        "embedding_model": None,
+                        "embedded_at": None,
+                    }
+                },
+            )
+            logger.info("Cleared all chunk embeddings for rebuild")
 
-        existing_ids = set(self._collection.get()["ids"])
-        new_docs = [d for d in documents if d.doc_id not in existing_ids]
-
-        if not new_docs:
-            logger.info("All documents already indexed — skipping build")
-            return
-
-        logger.info(f"Embedding {len(new_docs)} new documents...")
-
-        # Batch embed
-        texts = [d.text for d in new_docs]
-        embeddings = self._embedder.embed(texts)
-
-        # Upsert into ChromaDB
-        self._collection.upsert(
-            ids=[d.doc_id for d in new_docs],
-            embeddings=embeddings.tolist(),
-            documents=[d.text for d in new_docs],
-            metadatas=[d.metadata for d in new_docs],
-        )
+        query: dict[str, Any] = {
+            "text": {"$exists": True, "$nin": [None, ""]},
+            "$or": [
+                {"embedding": None},
+                {"embedding": {"$exists": False}},
+                {"embedding_model": {"$ne": self._model_name}},
+            ],
+        }
+        to_process = list(self._coll.find(query))
+        if not to_process:
+            logger.info("No chunks need embedding")
+            return 0
 
         logger.info(
-            f"Indexed {len(new_docs)} chunks. "
-            f"Total in store: {self._collection.count()}"
+            "Embedding %s Mongo chunks (model=%s)...", len(to_process), self._model_name
         )
+        batch_size = 32
+        updated = 0
+        now = datetime.utcnow()
+        for start in range(0, len(to_process), batch_size):
+            batch = to_process[start : start + batch_size]
+            texts = [str(d["text"]) for d in batch]
+            vectors = self._embedder.embed(texts)
+            ops: list[UpdateOne] = []
+            for doc, row in zip(batch, vectors, strict=True):
+                ops.append(
+                    UpdateOne(
+                        {"_id": doc["_id"]},
+                        {
+                            "$set": {
+                                "embedding": row.astype(float).tolist(),
+                                "embedding_model": self._model_name,
+                                "embedded_at": now,
+                            }
+                        },
+                    )
+                )
+            if ops:
+                self._coll.bulk_write(ops, ordered=False)
+                updated += len(ops)
+        logger.info("Wrote embeddings for %s chunks", updated)
+        return updated
 
-    # ── Retrieval ─────────────────────────────────────────────────────────────
+    def build(
+        self, documents: list[Document] | None = None, force_rebuild: bool = False
+    ) -> None:
+        """Ensure Mongo chunks carry embeddings. Legacy ``documents`` is ignored."""
+        self.ensure_all_chunks_embedded(force_rebuild=force_rebuild)
 
     def search(
         self,
@@ -103,44 +139,59 @@ class VectorStore:
         top_k: int = 5,
         min_similarity: float = 0.0,
     ) -> list[RetrievedChunk]:
-        """Semantic search against the corpus.
-        Returns top_k most similar chunks above min_similarity threshold."""
-
-        if self._collection.count() == 0:
+        cursor = self._coll.find(
+            {"embedding": {"$ne": None}},
+            projection={
+                "text": 1,
+                "filename": 1,
+                "title": 1,
+                "chunk_index": 1,
+                "metadata": 1,
+                "embedding": 1,
+            },
+        )
+        rows = list(cursor)
+        rows = [
+            r
+            for r in rows
+            if r.get("embedding") is not None
+            and isinstance(r["embedding"], list)
+            and len(r["embedding"]) > 0
+        ]
+        if not rows:
             raise VectorStoreError(
-                "Vector store is empty. Run the ingestion pipeline first."
+                "Vector store is empty. Upload PDFs and ensure Mongo chunks are embedded."
             )
 
-        query_embedding = self._embedder.embed_one(query)
-
-        results = self._collection.query(
-            query_embeddings=[query_embedding.tolist()],
-            n_results=min(top_k, self._collection.count()),
-            include=["documents", "metadatas", "distances"],
-        )
-
-        chunks = []
-        for i, doc_id in enumerate(results["ids"][0]):
-            # ChromaDB returns L2 distance; convert to similarity score
-            distance = results["distances"][0][i]
-            similarity = max(0.0, 1.0 - distance / 2.0)
-
-            if similarity < min_similarity:
+        q = self._embedder.embed_one(query).astype(np.float64)
+        q = q / (float(np.linalg.norm(q)) + 1e-12)
+        matrix = np.stack([np.asarray(r["embedding"], dtype=np.float64) for r in rows])
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-12
+        matrix = matrix / norms
+        sims = (matrix @ q).astype(np.float64)
+        order = np.argsort(-sims)
+        k = min(top_k, len(rows))
+        chunks: list[RetrievedChunk] = []
+        for idx in order[:k]:
+            i = int(idx)
+            sim = float(sims[i])
+            if sim < min_similarity:
                 continue
-
-            meta = results["metadatas"][0][i]
+            r = rows[i]
+            meta = r.get("metadata") if isinstance(r.get("metadata"), dict) else {}
+            fname = r.get("filename") or meta.get("source_file", "unknown")
+            title = r.get("title") or meta.get("title", "unknown")
             chunks.append(
                 RetrievedChunk(
-                    doc_id=doc_id,
-                    source_file=meta.get("source_file", "unknown"),
-                    title=meta.get("title", "unknown"),
-                    text=results["documents"][0][i],
-                    chunk_index=meta.get("chunk_index", 0),
-                    similarity_score=round(similarity, 4),
+                    doc_id=str(r["_id"]),
+                    source_file=str(fname),
+                    title=str(title),
+                    text=str(r.get("text", "")),
+                    chunk_index=int(r.get("chunk_index", 0)),
+                    similarity_score=round(sim, 4),
                     metadata=meta,
                 )
             )
-
         return sorted(chunks, key=lambda c: c.similarity_score, reverse=True)
 
     def search_many(
@@ -149,29 +200,27 @@ class VectorStore:
         top_k: int = 5,
         min_similarity: float = 0.0,
     ) -> list[RetrievedChunk]:
-        """Search with multiple queries, deduplicate, and return top results."""
         seen_ids: set[str] = set()
         all_chunks: list[RetrievedChunk] = []
-
-        for query in queries:
-            chunks = self.search(query, top_k=top_k, min_similarity=min_similarity)
-            for chunk in chunks:
+        for q in queries:
+            for chunk in self.search(q, top_k=top_k, min_similarity=min_similarity):
                 if chunk.doc_id not in seen_ids:
                     all_chunks.append(chunk)
                     seen_ids.add(chunk.doc_id)
-
         return sorted(all_chunks, key=lambda c: c.similarity_score, reverse=True)
 
     def count(self) -> int:
-        return int(self._collection.count())
+        return int(
+            self._coll.count_documents(
+                {
+                    "embedding": {
+                        "$exists": True,
+                        "$type": "array",
+                        "$not": {"$size": 0},
+                    }
+                }
+            )
+        )
 
     def is_built(self) -> bool:
-        return bool(self._collection.count() > 0)
-
-    # ── Private ───────────────────────────────────────────────────────────────
-
-    def _get_or_create_collection(self):
-        return self._client.get_or_create_collection(
-            name=self._collection_name,
-            metadata={"hnsw:space": "l2"},
-        )
+        return self.count() > 0

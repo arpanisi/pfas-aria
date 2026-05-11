@@ -12,10 +12,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "react-hot-toast";
 
 import { AppLayout } from "@/components/layout/AppLayout";
+import { CorpusPage } from "@/pages/CorpusPage";
 import { Dashboard } from "@/pages/Dashboard";
 import { NewRun } from "@/pages/NewRun";
 import { RunHistory } from "@/pages/RunHistory";
-import { CorpusPage } from "@/pages/CorpusPage";
+import { ScreeningResults } from "@/pages/ScreeningResults";
 import { useTheme } from "@/store/theme";
 import { setAuthToken } from "@/api/client";
 
@@ -69,6 +70,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
                 <Route index element={<Navigate to="/runs" replace />} />
                 <Route path="/sign-in" element={<Navigate to="/runs" replace />} />
                 <Route path="/runs" element={<RunHistory />} />
+                <Route path="/runs/screening" element={<ScreeningResults />} />
                 <Route path="/runs/:runId" element={<Dashboard />} />
                 <Route path="/upload" element={<NewRun />} />
                 <Route path="/corpus" element={<CorpusPage />} />

@@ -1,7 +1,7 @@
 """
 Resilience utilities.
 Circuit breaker + retry with exponential backoff for:
-  - LLM calls (Ollama)
+  - LLM calls (OpenRouter / Ollama / RunPod)
   - arXiv API
   - Semantic Scholar API
 
