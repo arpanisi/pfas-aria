@@ -81,7 +81,26 @@ def _openrouter_chat(
     response.raise_for_status()
     data = response.json()
     try:
-        return str(data["choices"][0]["message"]["content"]).strip()
+        msg = data["choices"][0]["message"]
+        content = msg.get("content") or ""
+        if not content:
+            # Some reasoning models return null content; the thinking text lives in
+            # msg["reasoning"] (plain string) or msg["reasoning_details"][*]["text"].
+            content = msg.get("reasoning") or ""
+        if not content:
+            for block in msg.get("reasoning_details") or []:
+                if isinstance(block, dict):
+                    text = block.get("text") or block.get("thinking") or ""
+                    if text:
+                        content = str(text)
+                        break
+        if not content:
+            raise LLMError(
+                f"Unexpected OpenRouter response shape: {repr(data)[:500]}"
+            )
+        return content.strip()
+    except LLMError:
+        raise
     except (KeyError, IndexError, TypeError) as e:
         raise LLMError(
             f"Unexpected OpenRouter response shape: {repr(data)[:500]}"

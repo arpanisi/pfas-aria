@@ -61,3 +61,4 @@ notebooks/**/*.ipynb
 # ── Workflows ────────────────────────────────────────────────────────────────
 .github/workflows/lint.yml
 .github/workflows/test.yml
+complete_workflow.txt

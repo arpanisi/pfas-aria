@@ -17,6 +17,7 @@ import { Dashboard } from "@/pages/Dashboard";
 import { NewRun } from "@/pages/NewRun";
 import { RunHistory } from "@/pages/RunHistory";
 import { ScreeningResults } from "@/pages/ScreeningResults";
+import { ScreeningStats } from "@/pages/ScreeningStats";
 import { useTheme } from "@/store/theme";
 import { setAuthToken } from "@/api/client";
 
@@ -71,6 +72,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
                 <Route path="/sign-in" element={<Navigate to="/runs" replace />} />
                 <Route path="/runs" element={<RunHistory />} />
                 <Route path="/runs/screening" element={<ScreeningResults />} />
+                <Route path="/runs/stats" element={<ScreeningStats />} />
                 <Route path="/runs/:runId" element={<Dashboard />} />
                 <Route path="/upload" element={<NewRun />} />
                 <Route path="/corpus" element={<CorpusPage />} />

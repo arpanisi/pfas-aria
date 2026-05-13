@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import {
@@ -26,167 +26,6 @@ type GroundingCard = Citation & {
   reasonTags: string[];
 };
 
-const DEMO_HYPOTHESES: Hypothesis[] = [
-  {
-    id: "demo-h1",
-    hypothesis_id: "H-01",
-    round: 1,
-    description:
-      "Surfactant-assisted plasma shifts PFCA degradation away from persistent intermediate accumulation and toward short-chain-dominated pathway states.",
-    rationale:
-      "The hypothesis follows from pathway metrics where entropy collapses after the intermediate-rich stage while fluoride yield increases.",
-    primary_variables: ["surfactant", "time", "C2 fraction", "Shannon entropy"],
-    model_family: "panel_fixed_effects",
-    priority_score: 0.91,
-    is_refinement: false,
-  },
-  {
-    id: "demo-h2",
-    hypothesis_id: "H-02",
-    round: 1,
-    description:
-      "Gas atmosphere contributes an independent secondary axis of PFBS degradation performance after solution chemistry effects are accounted for.",
-    rationale:
-      "PCA separates gas type from bulk-solution properties; regression tests whether that axis is predictive after time effects are separated.",
-    primary_variables: ["gas_used", "conductivity", "initial PFBS", "time"],
-    model_family: "panel_fixed_effects",
-    priority_score: 0.84,
-    is_refinement: false,
-  },
-  {
-    id: "demo-h3",
-    hypothesis_id: "H-03",
-    round: 2,
-    description:
-      "Initial chain-length composition controls maximum fluoride yield in PFCA mixtures, while surfactant addition modifies degradation kinetics.",
-    rationale:
-      "Mixture PCA and kinetic overlays show different drivers for defluorination and total PFCA disappearance.",
-    primary_variables: ["long_chain_fraction", "short_chain_fraction", "surfactant", "k_total"],
-    model_family: "panel_fixed_effects",
-    priority_score: 0.79,
-    is_refinement: true,
-  },
-];
-
-const DEMO_MODELS: ModelResult[] = [
-  {
-    id: "m1",
-    hypothesis_id: "H-01",
-    model_type: "fixed_effect_panel",
-    r_squared: 0.835,
-    adj_r_squared: 0.812,
-    n_observations: 186,
-    coefficients: {
-      time: 0.74,
-      surfactant: 0.42,
-      h2o2: 0.31,
-      "time × surfactant": 0.18,
-      "uv × h2o2": -0.12,
-    },
-    p_values: {
-      time: 0.0001,
-      surfactant: 0.008,
-      h2o2: 0.022,
-      "time × surfactant": 0.046,
-      "uv × h2o2": 0.19,
-    },
-    significant_variables: ["time", "surfactant", "h2o2", "time × surfactant"],
-    match_score: 0.88,
-    validation_passed: true,
-  },
-  {
-    id: "m2",
-    hypothesis_id: "H-02",
-    model_type: "fixed_effect_panel",
-    r_squared: 0.731,
-    adj_r_squared: 0.697,
-    n_observations: 92,
-    coefficients: {
-      time: 0.61,
-      gas_used: 0.39,
-      conductivity: 0.28,
-      additive: -0.16,
-      polarity: -0.08,
-    },
-    p_values: {
-      time: 0.0003,
-      gas_used: 0.013,
-      conductivity: 0.037,
-      additive: 0.21,
-      polarity: 0.48,
-    },
-    significant_variables: ["time", "gas_used", "conductivity"],
-    match_score: 0.81,
-    validation_passed: true,
-  },
-  {
-    id: "m3",
-    hypothesis_id: "H-03",
-    model_type: "fixed_effect_panel",
-    r_squared: 0.786,
-    adj_r_squared: 0.761,
-    n_observations: 144,
-    coefficients: {
-      short_chain_fraction: 0.58,
-      surfactant: 0.36,
-      long_chain_fraction: -0.29,
-      "surfactant × composition": 0.21,
-    },
-    p_values: {
-      short_chain_fraction: 0.004,
-      surfactant: 0.018,
-      long_chain_fraction: 0.041,
-      "surfactant × composition": 0.066,
-    },
-    significant_variables: ["short_chain_fraction", "surfactant", "long_chain_fraction"],
-    match_score: 0.83,
-    validation_passed: true,
-  },
-];
-
-const DEMO_CITATIONS: Citation[] = [
-  {
-    id: "c1",
-    source: "corpus",
-    title:
-      "Development and Application of Different Non-thermal Plasma Reactors for the Removal of Perfluorosurfactants in Water",
-    url: null,
-    year: "2019",
-    similarity_score: 0.92,
-    variable: "gas_used",
-  },
-  {
-    id: "c2",
-    source: "arxiv",
-    title:
-      "Mechanistic Modeling of Plasma-Induced PFAS Mineralization and Intermediate Pathway Evolution",
-    url: null,
-    year: "2024",
-    similarity_score: 0.87,
-    variable: "intermediate pathway",
-  },
-  {
-    id: "c3",
-    source: "semantic_scholar",
-    title:
-      "Degradation of Emerging Per- and Polyfluoroalkyl Substances Using an Electrochemical Plug Flow Reactor",
-    url: null,
-    year: "2023",
-    similarity_score: 0.84,
-    variable: "time",
-  },
-  {
-    id: "c4",
-    source: "semantic_scholar",
-    title:
-      "Incinerability of PFOA and HFPO-DA: Mechanisms, Kinetics, and Thermal Stability Ranking",
-    url: null,
-    year: "2023",
-    similarity_score: 0.78,
-    variable: "radical pathway",
-  },
-];
-
 const SOURCE_LABEL: Record<string, string> = {
   corpus: "Uploaded",
   uploaded: "Uploaded",
@@ -195,6 +34,74 @@ const SOURCE_LABEL: Record<string, string> = {
   s2: "Semantic Scholar",
   crossref: "Crossref",
 };
+
+/** Max hypotheses to show when a run has more than this many (top by score, else stable sample). */
+const DISPLAY_TOP_N = 3;
+
+function strHash(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = Math.imul(31, h) + s.charCodeAt(i) | 0;
+  return h >>> 0;
+}
+
+/** Stable pseudo-random subset when ranking is unavailable. */
+function pickSeededHypothesisSample(runId: string, hyps: Hypothesis[], n: number): Hypothesis[] {
+  if (hyps.length <= n) return hyps;
+  return [...hyps]
+    .sort((a, b) => strHash(`${runId}:${a.id}`) - strHash(`${runId}:${b.id}`))
+    .slice(0, n);
+}
+
+function resolveModelForHypothesis(h: Hypothesis, models: ModelResult[]): ModelResult | null {
+  return (
+    models.find((m) => m.hypothesis_id === h.id) ??
+    models.find((m) => m.hypothesis_id === h.hypothesis_id) ??
+    null
+  );
+}
+
+function jointRankingScore(m: ModelResult): number {
+  const r2 = Math.max(0, m.adj_r_squared ?? m.r_squared ?? 0);
+  const lit = Math.max(0, m.match_score ?? 0);
+  return r2 * (0.5 + lit);
+}
+
+/**
+ * When there are more than DISPLAY_TOP_N hypotheses, show the best N by
+ * (adjusted) R² × literature match. If no model rows join, use a stable sample.
+ */
+function pickDisplayHypotheses(
+  runId: string,
+  hyps: Hypothesis[],
+  models: ModelResult[],
+  n: number,
+): { display: Hypothesis[]; usedRanking: boolean; total: number } {
+  const total = hyps.length;
+  if (hyps.length <= n) {
+    return { display: hyps, usedRanking: false, total };
+  }
+  const scored = hyps.map((h) => {
+    const m = resolveModelForHypothesis(h, models);
+    return { h, s: m ? jointRankingScore(m) : -1 };
+  });
+  const hasRankable = scored.some((x) => x.s >= 0);
+  if (hasRankable) {
+    scored.sort((a, b) => {
+      if (b.s !== a.s) return b.s - a.s;
+      return a.h.id.localeCompare(b.h.id);
+    });
+    return {
+      display: scored.slice(0, n).map((x) => x.h),
+      usedRanking: true,
+      total,
+    };
+  }
+  return {
+    display: pickSeededHypothesisSample(runId, hyps, n),
+    usedRanking: false,
+    total,
+  };
+}
 
 function sigmoidScore(value: number | undefined) {
   if (value === undefined || Number.isNaN(value)) return "—";
@@ -215,13 +122,8 @@ function formatCoef(value: number) {
 }
 
 function modelForHypothesis(hypothesis: Hypothesis | null, modelResults: ModelResult[]) {
-  if (!hypothesis) return modelResults[0] ?? null;
-  return (
-    modelResults.find((m) => m.hypothesis_id === hypothesis.hypothesis_id) ??
-    modelResults.find((m) => m.hypothesis_id === hypothesis.id) ??
-    modelResults[0] ??
-    null
-  );
+  if (!hypothesis) return null;
+  return resolveModelForHypothesis(hypothesis, modelResults);
 }
 
 function buildEffects(model: ModelResult | null): EffectView[] {
@@ -256,7 +158,7 @@ function normalizeSource(source: string) {
 }
 
 function reasonTags(citation: Citation, selected: Hypothesis | null) {
-  const title = citation.title.toLowerCase();
+  const title = (citation.title ?? "").toLowerCase();
   const tags = new Set<string>();
   if (citation.variable) tags.add(citation.variable);
   selected?.primary_variables?.slice(0, 2).forEach((v) => tags.add(v));
@@ -299,6 +201,15 @@ function statusStage(status?: string, wsStage?: string) {
   return status?.replace(/_/g, " ") ?? "loading";
 }
 
+/** Map API status strings to existing badge-* CSS classes. */
+function statusBadgeClass(status: string) {
+  if (status === "loading") return "badge-loading";
+  if (status === "converged") return "badge-converged";
+  if (status === "failed") return "badge-failed";
+  if (status.includes("running")) return "badge-running";
+  return "badge-completed";
+}
+
 export function Dashboard() {
   const { runId } = useParams<{ runId: string }>();
   const [selectedHypId, setSelectedHypId] = useState<string | null>(null);
@@ -307,14 +218,60 @@ export function Dashboard() {
   const { lastMessage } = useWebSocket(runId ?? null);
   const { data: summary } = useRunSummary(runId ?? null);
   const { data: status } = useRunStatus(runId ?? null, true);
-  const { data: apiHypotheses = [] } = useHypotheses(runId ?? null, activeRound);
-  const { data: apiModelResults = [] } = useModelResults(runId ?? null);
+  const { data: apiHypotheses = [], isFetched: hypothesesFetched } = useHypotheses(
+    runId ?? null,
+    activeRound,
+  );
+  const { data: apiModelResults = [], isFetched: modelsFetched } = useModelResults(runId ?? null);
   const { data: apiCitations = [] } = useCitations(runId ?? null);
   const { data: convergence = [] } = useConvergence(runId ?? null);
 
-  const hypotheses = apiHypotheses.length ? apiHypotheses : DEMO_HYPOTHESES;
-  const modelResults = apiModelResults.length ? apiModelResults : DEMO_MODELS;
-  const citations = apiCitations.length ? apiCitations : DEMO_CITATIONS;
+  const { displayHypotheses, subsetNote } = useMemo(() => {
+    if (!runId || !hypothesesFetched) {
+      return { displayHypotheses: [] as Hypothesis[], subsetNote: null as string | null };
+    }
+    const all = apiHypotheses;
+    if (all.length === 0) {
+      return { displayHypotheses: [], subsetNote: null };
+    }
+    if (!modelsFetched) {
+      return { displayHypotheses: all, subsetNote: null };
+    }
+    const { display, usedRanking, total } = pickDisplayHypotheses(
+      runId,
+      all,
+      apiModelResults,
+      DISPLAY_TOP_N,
+    );
+    if (display.length >= total) {
+      return { displayHypotheses: display, subsetNote: null };
+    }
+    const note = usedRanking
+      ? `Showing top ${DISPLAY_TOP_N} of ${total} tested hypotheses (ranked by adjusted R² × literature match).`
+      : `Showing ${DISPLAY_TOP_N} of ${total} tested hypotheses (stable sample — link models to rank).`;
+    return { displayHypotheses: display, subsetNote: note };
+  }, [
+    runId,
+    hypothesesFetched,
+    apiHypotheses,
+    modelsFetched,
+    apiModelResults,
+  ]);
+
+  const hypotheses = displayHypotheses;
+  const modelResults = apiModelResults;
+  const citations = apiCitations;
+
+  const showHypothesesLoading = Boolean(runId && !hypothesesFetched);
+  const showHypothesesEmpty =
+    Boolean(runId && hypothesesFetched && apiHypotheses.length === 0);
+
+  useEffect(() => {
+    const ids = new Set(hypotheses.map((h) => h.id));
+    if (selectedHypId && !ids.has(selectedHypId)) {
+      setSelectedHypId(hypotheses[0]?.id ?? null);
+    }
+  }, [hypotheses, selectedHypId]);
 
   const selectedHyp =
     hypotheses.find((h) => h.id === selectedHypId) ??
@@ -328,8 +285,13 @@ export function Dashboard() {
 
   const matchScore = lastMessage?.match_score ?? status?.final_match_score ?? selectedModel?.match_score ?? 0;
   const currentRound = lastMessage?.round ?? status?.current_round ?? selectedHyp?.round ?? 0;
-  const runStatus = status?.status ?? (apiHypotheses.length ? "completed" : "demo");
-  const maxRound = summary?.n_rounds ?? Math.max(...hypotheses.map((h) => h.round), 0);
+  const runStatus =
+    status?.status ??
+    summary?.status ??
+    (hypothesesFetched ? (apiHypotheses.length ? "completed" : "no_hypotheses") : "loading");
+  const maxRound =
+    summary?.n_rounds ??
+    Math.max(0, ...apiHypotheses.map((h) => h.round));
   const rounds = Array.from({ length: maxRound }, (_, i) => i + 1);
   const validation = topValidation(selectedModel, matchScore);
   const bestConvergence = convergence.length ? convergence[convergence.length - 1] : undefined;
@@ -370,7 +332,7 @@ export function Dashboard() {
               <span>{step}</span>
             </div>
           ))}
-          <div className={`status-badge badge-${runStatus}`}>{statusStage(runStatus, lastMessage?.stage)}</div>
+          <div className={`status-badge ${statusBadgeClass(runStatus)}`}>{statusStage(runStatus, lastMessage?.stage)}</div>
         </section>
 
         <section className="content-grid">
@@ -390,8 +352,23 @@ export function Dashboard() {
                   </div>
                 )}
               </div>
+              {subsetNote && (
+                <p className="subset-sample-note" role="status">
+                  {subsetNote}
+                </p>
+              )}
               <div className="hypothesis-grid">
-                {hypotheses.map((hypothesis) => {
+                {showHypothesesLoading && (
+                  <div className="empty-inline dashboard-loading">Loading hypotheses for this run…</div>
+                )}
+                {showHypothesesEmpty && (
+                  <div className="empty-inline">
+                    No hypotheses are stored for this run yet. Complete screening with persistence, or open a run from history that has saved results.
+                  </div>
+                )}
+                {!showHypothesesLoading &&
+                  !showHypothesesEmpty &&
+                  hypotheses.map((hypothesis) => {
                   const model = modelForHypothesis(hypothesis, modelResults);
                   const selected = selectedHyp?.id === hypothesis.id;
                   return (
@@ -434,7 +411,12 @@ export function Dashboard() {
               <div className="evidence-layout">
                 <div className="interpretation-card">
                   <h3>Interpretation</h3>
-                  <p>{selectedHyp?.rationale ?? "The agent is separating time evolution from treatment-factor effects, then testing whether the observed coefficient pattern is consistent with the proposed mechanism."}</p>
+                  <p>
+                    {selectedHyp?.rationale ??
+                      (hypothesesFetched
+                        ? "No interpretation text is stored for this hypothesis yet. Run literature-grounded screening with persistence, or re-run the modeling pipeline so the narrative layer can populate rationale."
+                        : "Loading…")}
+                  </p>
                   <div className="validation-list">
                     {validation.map((line) => <span key={line}>{line}</span>)}
                   </div>

@@ -281,8 +281,11 @@ async def get_convergence(
                 )
                 for r in rows
             ]
-    except Exception:
-        pass
+    except Exception as e:
+        # A failed statement aborts the transaction in PostgreSQL; must rollback
+        # before running the fallback queries on the same session.
+        logger.debug("mv_run_convergence read failed, using live query: %s", e)
+        await db.rollback()
 
     # Fallback: live aggregation query
     hyp_ids = (

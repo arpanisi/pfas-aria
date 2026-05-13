@@ -173,21 +173,14 @@ class DataLoader:
                 return pd.read_csv(path, sep="\t")
             elif path.suffix in {".xlsx", ".xls"}:
                 content = path.read_bytes()
-                df, header_i, unified = load_excel_bytes_with_layout(content)
-                if unified is not None:
-                    logger.info(
-                        "Excel %s: unified independent/dependent layout "
-                        "(header row index %s)",
-                        path.name,
-                        unified.name_row_index,
-                    )
-                elif header_i:
-                    logger.info(
-                        "Excel %s: using row %s as header (skipped %s preamble row(s))",
-                        path.name,
-                        header_i,
-                        header_i,
-                    )
+                df, header_i, meta = load_excel_bytes_with_layout(content)
+                logger.info(
+                    "Excel %s: unified layout (name row index %s, %s inputs, %s outputs)",
+                    path.name,
+                    header_i,
+                    len(meta.input_cols),
+                    len(meta.output_cols),
+                )
                 return df
         except Exception as e:
             raise IngestionError(f"Failed to read {path}: {e}") from e

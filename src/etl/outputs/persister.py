@@ -8,6 +8,8 @@ Called by the supervisor after each round completes.
 
 from __future__ import annotations
 
+import asyncio
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.orm import (
@@ -18,7 +20,9 @@ from src.db.orm import (
     Run,
     ValidationResult,
 )
+from src.db.redis_client import invalidate_db_cache
 from src.orchestration.state import PipelineState
+from src.reporting.narrative import generate_hypothesis_rationale_from_model_evidence
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -101,13 +105,88 @@ class OutputPersister:
         hypothesis_results = getattr(modeling_result, "hypothesis_results", [])
 
         for hyp_obj in hypotheses_list:
-            # Persist hypothesis
+            matching = next(
+                (
+                    hr
+                    for hr in hypothesis_results
+                    if hr.hypothesis.id == hyp_obj.id
+                ),
+                None,
+            )
+
+            grounding_scores = getattr(grounding_result, "hypothesis_grounding", [])
+            grounding = None
+            if matching and matching.best_model:
+                grounding = next(
+                    (
+                        g
+                        for g in grounding_scores
+                        if g.hypothesis_id == matching.best_model.hypothesis_id
+                    ),
+                    None,
+                )
+
+            citation_titles: list[str] = []
+            if grounding is not None:
+                for c in getattr(grounding, "top_citations", [])[:5]:
+                    t = getattr(c, "title", None) or ""
+                    if t:
+                        citation_titles.append(t)
+                citation_titles = citation_titles[:3]
+
+            bm = matching.best_model if matching else None
+            vr = (
+                matching.validation_reports[0]
+                if matching and matching.validation_reports
+                else None
+            )
+
+            rationale_value = hyp_obj.rationale
+            if bm is not None and vr is not None:
+                coefs: dict[str, float] = {}
+                for k, v in bm.coefficients.items():
+                    try:
+                        coefs[str(k)] = float(v)
+                    except (TypeError, ValueError):
+                        continue
+                rationale_value = await asyncio.to_thread(
+                    generate_hypothesis_rationale_from_model_evidence,
+                    hypothesis_description=hyp_obj.description,
+                    primary_variables=list(hyp_obj.primary_variables),
+                    model_family=hyp_obj.model_family,
+                    r_squared=float(bm.r_squared),
+                    adj_r_squared=float(bm.adj_r_squared),
+                    significant_variables=list(bm.significant_variables),
+                    coefficients=coefs,
+                    validation_passed=bool(vr.overall_passed),
+                    citation_titles=citation_titles,
+                )
+            elif bm is not None:
+                coefs = {}
+                for k, v in bm.coefficients.items():
+                    try:
+                        coefs[str(k)] = float(v)
+                    except (TypeError, ValueError):
+                        continue
+                rationale_value = await asyncio.to_thread(
+                    generate_hypothesis_rationale_from_model_evidence,
+                    hypothesis_description=hyp_obj.description,
+                    primary_variables=list(hyp_obj.primary_variables),
+                    model_family=hyp_obj.model_family,
+                    r_squared=float(bm.r_squared),
+                    adj_r_squared=float(bm.adj_r_squared),
+                    significant_variables=list(bm.significant_variables),
+                    coefficients=coefs,
+                    validation_passed=False,
+                    citation_titles=citation_titles,
+                )
+
             hyp_record = Hypothesis(
                 run_id=run_id,
                 hypothesis_id=hyp_obj.id,
                 round=round_number,
                 description=hyp_obj.description,
-                rationale=hyp_obj.rationale,
+                rationale=rationale_value,
                 primary_variables=hyp_obj.primary_variables,
                 interaction_terms=[list(t) for t in hyp_obj.interaction_terms],
                 control_variables=hyp_obj.control_variables,
@@ -119,23 +198,15 @@ class OutputPersister:
             self._session.add(hyp_record)
             await self._session.flush()
 
-            # Find matching modeling result
-            matching = next(
-                (hr for hr in hypothesis_results if hr.hypothesis.id == hyp_obj.id),
-                None,
-            )
             if not matching or not matching.best_model:
                 continue
 
             model = matching.best_model
-
-            # Find matching grounding result
-            grounding_scores = getattr(grounding_result, "hypothesis_grounding", [])
-            grounding = next(
-                (g for g in grounding_scores if g.hypothesis_id == model.hypothesis_id),
-                None,
+            match_score = (
+                float(getattr(grounding, "global_match_score", 0.0))
+                if grounding is not None
+                else 0.0
             )
-            match_score = getattr(grounding, "global_match_score", 0.0)
 
             # Persist model result
             model_record = ModelResult(
@@ -205,6 +276,7 @@ class OutputPersister:
                         self._session.add(cit_record)
 
         await self._session.flush()
+        await invalidate_db_cache(run_id)
         logger.info(
             f"Persisted round {round_number} for run {run_id}: "
             f"{len(hypotheses_list)} hypotheses"

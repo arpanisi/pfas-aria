@@ -21,14 +21,18 @@ function formatWhen(iso: string | null | undefined) {
   }
 }
 
+/** Backend full-table screening segment uses regime key 1 (see dataset_screening_layout). */
+const DEFAULT_SCREENING_REGIME_ID = 1;
+
 function openRun(navigate: ReturnType<typeof useNavigate>, r: RunStatus) {
-  if (r.run_kind === "screening" && r.dataset_filename && r.regime_id != null) {
+  if (r.run_kind === "screening" && r.dataset_filename) {
+    const regimeId = r.regime_id != null ? r.regime_id : DEFAULT_SCREENING_REGIME_ID;
     const q = new URLSearchParams({
       filename: r.dataset_filename,
-      regimeId: String(r.regime_id),
+      regimeId: String(regimeId),
+      runId: r.run_id,
     });
-    q.set("runId", r.run_id);
-    navigate(`/runs/screening?${q.toString()}`, { state: { runName: r.run_name } });
+    navigate(`/runs/stats?${q.toString()}`, { state: { runName: r.run_name } });
     return;
   }
   navigate(`/runs/${r.run_id}`);

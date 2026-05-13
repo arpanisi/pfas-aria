@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { useScreeningGrounded } from "@/hooks/usePipeline";
+import { useGroundingProgress } from "@/hooks/usePipeline";
 import type { Citation, Hypothesis, ModelResult, ScreeningBundle } from "@/types";
 
 type EffectView = {
@@ -124,13 +124,6 @@ function topValidation(model: ModelResult | null, matchScore: number) {
   return lines;
 }
 
-function corpusErrorCode(err: unknown): string | null {
-  if (typeof err !== "object" || err === null || !("response" in err)) return null;
-  const r = err as { response?: { data?: { detail?: unknown } } };
-  const d = r.response?.data?.detail;
-  if (typeof d === "object" && d !== null && "code" in d) return String((d as { code: string }).code);
-  return null;
-}
 
 export function ScreeningResults() {
   const navigate = useNavigate();
@@ -154,7 +147,7 @@ export function ScreeningResults() {
   }, [filename, regimeId, runName, runIdParam]);
 
   const enabled = Boolean(request);
-  const query = useScreeningGrounded(request, enabled);
+  const query = useGroundingProgress(request, enabled);
 
   const [selectedHypId, setSelectedHypId] = useState<string | null>(null);
 
@@ -163,7 +156,7 @@ export function ScreeningResults() {
   const modelResults = useMemo(() => bundles.map((b) => b.model_result), [bundles]);
 
   useEffect(() => {
-    if (corpusErrorCode(query.error) === "CORPUS_TOO_SMALL") {
+    if (query.error?.includes("CORPUS_TOO_SMALL")) {
       navigate("/corpus?needPapers=1", { replace: true });
     }
   }, [query.error, navigate]);
@@ -220,23 +213,46 @@ export function ScreeningResults() {
   }
 
   if (query.isLoading) {
+    const { pct, stage, etaSeconds } = query;
+    const etaLabel =
+      etaSeconds != null && etaSeconds > 0
+        ? etaSeconds >= 60
+          ? `~${Math.ceil(etaSeconds / 60)} min remaining`
+          : `~${etaSeconds}s remaining`
+        : null;
     return (
       <div className="results-shell">
-        <p style={{ color: "var(--text-muted)", padding: 48 }}>Building literature-grounded results…</p>
+        <div className="section-card" style={{ maxWidth: 520, margin: "64px auto", padding: "36px 32px" }}>
+          <h2 style={{ marginBottom: 24, fontSize: 18 }}>Building grounded results…</h2>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, alignItems: "baseline" }}>
+            <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{stage || "Starting…"}</span>
+            <span style={{ display: "flex", gap: 12, alignItems: "baseline" }}>
+              {etaLabel && (
+                <span style={{ color: "var(--text-muted)", fontSize: 12 }}>{etaLabel}</span>
+              )}
+              <span style={{ fontWeight: 600, fontSize: 13 }}>{pct}%</span>
+            </span>
+          </div>
+          <div style={{ background: "var(--border)", borderRadius: 8, height: 10, overflow: "hidden" }}>
+            <div style={{
+              height: "100%",
+              width: `${pct}%`,
+              background: "var(--accent, #4f8ef7)",
+              borderRadius: 8,
+              transition: "width 0.6s ease",
+            }} />
+          </div>
+        </div>
       </div>
     );
   }
 
-  if (query.isError && corpusErrorCode(query.error) !== "CORPUS_TOO_SMALL") {
-    const msg =
-      typeof (query.error as { message?: string })?.message === "string"
-        ? (query.error as { message: string }).message
-        : "Request failed";
+  if (query.isError && !query.error?.includes("CORPUS_TOO_SMALL")) {
     return (
       <div className="results-shell">
         <div className="section-card" style={{ maxWidth: 560, margin: "48px auto" }}>
           <h1 className="page-title">Could not load results</h1>
-          <p style={{ color: "var(--text-muted)" }}>{msg}</p>
+          <p style={{ color: "var(--text-muted)" }}>{query.error ?? "Request failed"}</p>
           <button type="button" className="btn-primary" style={{ marginTop: 16 }} onClick={() => navigate("/upload")}>
             Back to New Run
           </button>
@@ -245,7 +261,7 @@ export function ScreeningResults() {
     );
   }
 
-  if (query.isError && corpusErrorCode(query.error) === "CORPUS_TOO_SMALL") {
+  if (query.isError && query.error?.includes("CORPUS_TOO_SMALL")) {
     return null;
   }
 
@@ -268,7 +284,7 @@ export function ScreeningResults() {
                 Grounded hypotheses saved to PostgreSQL for run <strong>#{d.persisted_to_run_id}</strong>.
               </p>
             )}
-            {!runIdParam && query.isSuccess && (
+            {!runIdParam && query.data && (
               <p style={{ marginTop: 12, fontSize: "13px", color: "var(--text-muted)" }}>
                 Pass a screening <code>runId</code> in the URL (from New Run after screening) to store these results in
                 run history.

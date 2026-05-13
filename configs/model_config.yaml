@@ -8,7 +8,7 @@ llm:
   provider: "openrouter"
 
   # OpenRouter model id — see https://openrouter.ai/models
-  model: "openai/gpt-4o-mini"
+  model: "inclusionai/ring-2.6-1t:free"
 
   # RunPod: set provider to runpod and RUNPOD_ENDPOINT in .env
   runpod_endpoint: null
