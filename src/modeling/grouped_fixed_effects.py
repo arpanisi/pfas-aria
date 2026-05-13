@@ -235,7 +235,7 @@ class GroupedFixedEffects:
             converged = False
 
         # Extract group-time effects
-        group_time_effects = {}
+        group_time_effects: dict[int, dict[float, float]] = {}
         for g in range(k):
             group_time_effects[g + 1] = {}
             for t in unique_times:

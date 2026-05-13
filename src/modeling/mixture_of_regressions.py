@@ -273,7 +273,7 @@ class MixtureOfRegressions:
         gamma = np.exp(log_gamma)
         gamma /= gamma.sum(axis=1, keepdims=True)
 
-        return gamma
+        return np.asarray(gamma, dtype=np.float64)
 
     def _m_step(
         self,

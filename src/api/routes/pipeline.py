@@ -14,7 +14,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -168,7 +168,7 @@ def _preview_cell_str(value: object) -> str:
         t = f"{value:.10g}"
         return t
     try:
-        fv = float(value)
+        fv = float(cast(Any, value))
         if not math.isfinite(fv):
             return ""
         ti = int(fv)
@@ -759,7 +759,7 @@ async def _persist_upload_label_encodings(
         )
         db.add(row)
         await db.flush()
-        return row.id
+        return str(row.id)
     except Exception as e:  # noqa: BLE001
         logger.warning("Could not persist upload encodings: %s", e)
         return None

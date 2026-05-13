@@ -191,7 +191,8 @@ class VectorStore:
             if sim < min_similarity:
                 continue
             r = rows[i]
-            meta = r.get("metadata") if isinstance(r.get("metadata"), dict) else {}
+            raw_meta = r.get("metadata")
+            meta: dict[str, Any] = raw_meta if isinstance(raw_meta, dict) else {}
             fname = r.get("filename") or meta.get("source_file", "unknown")
             title = r.get("title") or meta.get("title", "unknown")
             chunks.append(
@@ -240,7 +241,8 @@ class VectorStore:
                 if sim < min_similarity:
                     continue
                 r = rows[i]
-                meta = r.get("metadata") if isinstance(r.get("metadata"), dict) else {}
+                raw_meta = r.get("metadata")
+                meta: dict[str, Any] = raw_meta if isinstance(raw_meta, dict) else {}
                 fname = r.get("filename") or meta.get("source_file", "unknown")
                 title = r.get("title") or meta.get("title", "unknown")
                 chunks.append(

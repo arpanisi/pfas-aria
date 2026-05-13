@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
+from src.ingestion.unified_experimental_sheet import UnifiedSheetMeta
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -122,7 +123,7 @@ def apply_upload_data_cleaning(
 
 
 def infer_layout_column_lists(
-    df: pd.DataFrame, unified_meta: object | None
+    df: pd.DataFrame, unified_meta: UnifiedSheetMeta | None
 ) -> tuple[list[str], list[str]]:
     cols_list = list(df.columns)
     if unified_meta is not None:
