@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 
 import pandas as pd
+import pytest
 
 from src.ingestion.dataset_screening_layout import (
     assign_screening_layout_from_column_lists,
@@ -82,8 +83,9 @@ def test_parse_unified_experimental_excel_detects_layout() -> None:
     assert "condition" not in meta.input_cols
     assert "time_min" not in meta.input_cols
     assert len(meta.output_cols) == 3
-    assert "pfoa_mg/l" in meta.input_cols
-    assert "out_fl_mg/l" in meta.output_cols
+    # Headers are snake_cased; "/" becomes "_" (see _make_unique_column_names).
+    assert "pfoa_mg_l" in meta.input_cols
+    assert "out_fl_mg_l" in meta.output_cols
 
 
 def test_unified_layout_screening_uses_full_dataset_segment() -> None:
@@ -101,14 +103,15 @@ def test_unified_layout_screening_uses_full_dataset_segment() -> None:
     assert len(res.regimes[1]) == len(df)
 
 
-def test_load_excel_bytes_with_layout_falls_back_without_role_row(tmp_path) -> None:
+def test_load_excel_bytes_with_layout_requires_unified_two_row_header(tmp_path) -> None:
+    """Plain single-header Excel is rejected; callers must use the unified layout."""
+    from src.utils.exceptions import IngestionError
+
     p = tmp_path / "plain.xlsx"
     pd.DataFrame({"a": [1], "b": [2]}).to_excel(p, index=False)
     content = p.read_bytes()
-    df, hdr, meta = load_excel_bytes_with_layout(content)
-    assert meta is None
-    assert hdr is not None
-    assert "a" in [str(c).lower() for c in df.columns]
+    with pytest.raises(IngestionError, match="two-row header"):
+        load_excel_bytes_with_layout(content)
 
 
 def test_title_preamble_before_role_row() -> None:
