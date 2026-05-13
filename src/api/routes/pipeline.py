@@ -155,12 +155,12 @@ def _preview_cell_str(value: object) -> str:
         pass
     if isinstance(value, bool):
         return "true" if value else "false"
-    if isinstance(value, (pd.Timestamp, datetime)):
+    if isinstance(value, pd.Timestamp | datetime):
         try:
             return value.isoformat()
         except Exception:
             return str(value)
-    if isinstance(value, (int,)):
+    if isinstance(value, int):
         return str(value)
     if isinstance(value, float):
         if not math.isfinite(value):
@@ -1292,7 +1292,9 @@ async def _run_grounding_job(job_id: str, body: ScreeningGroundedIn, n_papers: i
             _set_job(job_id, pct=20, stage="Loading pre-computed screening results…")
 
             def _sync_rag_only() -> dict:
-                from src.pipeline.screening_grounded import run_grounding_from_precomputed
+                from src.pipeline.screening_grounded import (
+                    run_grounding_from_precomputed,
+                )
                 from src.rag.pipeline import RAGPipeline
 
                 retriever = RAGPipeline().build(force_rebuild=False)
@@ -1337,7 +1339,9 @@ async def _run_grounding_job(job_id: str, body: ScreeningGroundedIn, n_papers: i
                         _set_job(job_id, pct=pct, stage="Fitting models & retrieving literature…")
 
             def _sync_full() -> dict:
-                from src.pipeline.screening_grounded import run_screening_grounded_for_regime
+                from src.pipeline.screening_grounded import (
+                    run_screening_grounded_for_regime,
+                )
                 from src.rag.pipeline import RAGPipeline
 
                 df, _hdr, unified_meta = _read_normalized_dataframe(path)

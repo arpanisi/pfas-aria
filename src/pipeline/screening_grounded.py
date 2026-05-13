@@ -239,7 +239,7 @@ def run_screening_grounded_for_regime(
     )
     strong = [c for c in ranked if c.lit_score >= MIN_LIT]
     chosen = strong[:FINAL_N] if len(strong) >= 2 else ranked[:FINAL_N]
-    
+
     bundles: list[dict] = []
     for i, c in enumerate(chosen, start=1):
         hid = f"H{i}"
@@ -458,7 +458,7 @@ def run_screening_stats_for_regime(
 
 def run_grounding_from_precomputed(
     candidate_rows: list[dict],
-    retriever: "Retriever",
+    retriever: Retriever,
     *,
     regime_id: int,
     regime_n_rows: int,
