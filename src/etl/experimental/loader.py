@@ -192,9 +192,7 @@ class ExperimentalETL:
         outcome = self.settings.data.outcome_variable
         exclude = set(exclude_columns or [])
 
-        non_unique_cols = [
-            c for c in df.columns if int(df[c].nunique(dropna=True)) > 1
-        ]
+        non_unique_cols = [c for c in df.columns if int(df[c].nunique(dropna=True)) > 1]
         if non_unique_cols:
             _nu = df[non_unique_cols]
             cat_cols = [

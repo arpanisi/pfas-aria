@@ -42,9 +42,9 @@ logger = get_logger(__name__)
 class GroupedFixedEffectsResult:
     """Result from grouped fixed effects estimation."""
 
-    k: int                                  # number of groups
-    coefficients: dict[str, float]          # global coefficients
-    group_assignments: dict               # experiment_id → group_id
+    k: int  # number of groups
+    coefficients: dict[str, float]  # global coefficients
+    group_assignments: dict  # experiment_id → group_id
     group_time_effects: dict[int, dict[float, float]]  # group_id → {time: effect}
     bic: float
     aic: float
@@ -111,9 +111,7 @@ class GroupedFixedEffects:
         results = []
         for k in range(self.min_k, min(self.max_k + 1, len(np.unique(exp_ids)))):
             try:
-                res = self._fit_single_k(
-                    X, y, times, exp_ids, k, predictor_cols, meta
-                )
+                res = self._fit_single_k(X, y, times, exp_ids, k, predictor_cols, meta)
                 results.append(res)
                 logger.info(f"  K={k}: BIC={res.bic:.2f}, R²={res.r_squared:.3f}")
             except Exception as e:
@@ -126,20 +124,14 @@ class GroupedFixedEffects:
         logger.info(f"Selected K={best.k} (BIC={best.bic:.2f})")
         return best
 
-    def _prepare_data(
-        self, df, meta, outcome_col: str, predictor_cols: list[str]
-    ):
+    def _prepare_data(self, df, meta, outcome_col: str, predictor_cols: list[str]):
         """Extract numeric arrays."""
-        y_raw = pd.to_numeric(df[outcome_col], errors='coerce')
-        X_raw = df[predictor_cols].apply(pd.to_numeric, errors='coerce')
-        times_raw = pd.to_numeric(df[meta.time_col], errors='coerce')
+        y_raw = pd.to_numeric(df[outcome_col], errors="coerce")
+        X_raw = df[predictor_cols].apply(pd.to_numeric, errors="coerce")
+        times_raw = pd.to_numeric(df[meta.time_col], errors="coerce")
         exp_ids_raw = df[meta.experiment_id_col]
 
-        valid = (
-            y_raw.notna()
-            & times_raw.notna()
-            & X_raw.notna().all(axis=1)
-        )
+        valid = y_raw.notna() & times_raw.notna() & X_raw.notna().all(axis=1)
         valid_idx = np.where(valid)[0]
 
         y = y_raw[valid].values
@@ -230,7 +222,10 @@ class GroupedFixedEffects:
             }
 
             # Check convergence
-            if np.allclose(beta, beta_prev, atol=self.tol) and exp_to_group == exp_to_group_new:
+            if (
+                np.allclose(beta, beta_prev, atol=self.tol)
+                and exp_to_group == exp_to_group_new
+            ):
                 converged = True
                 break
 
@@ -268,7 +263,9 @@ class GroupedFixedEffects:
 
         # Package
         coefficients = {name: float(beta[j]) for j, name in enumerate(predictor_names)}
-        group_assignments = {str(exp): int(exp_to_group[exp]) + 1 for exp in unique_exps}
+        group_assignments = {
+            str(exp): int(exp_to_group[exp]) + 1 for exp in unique_exps
+        }
 
         return GroupedFixedEffectsResult(
             k=k,

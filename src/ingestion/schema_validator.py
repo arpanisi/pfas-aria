@@ -77,11 +77,13 @@ class SchemaValidator:
         if suffix not in {".xlsx", ".xls"}:
             return ValidationResult(
                 passed=False,
-                errors=[ValidationError(
-                    code="UNSUPPORTED_FORMAT",
-                    message=f"Unsupported file type '{suffix}'.",
-                    fix="Upload a .xlsx, .xls, .csv, or .tsv file.",
-                )],
+                errors=[
+                    ValidationError(
+                        code="UNSUPPORTED_FORMAT",
+                        message=f"Unsupported file type '{suffix}'.",
+                        fix="Upload a .xlsx, .xls, .csv, or .tsv file.",
+                    )
+                ],
             )
         return self._validate_excel(content)
 
@@ -92,88 +94,99 @@ class SchemaValidator:
         parsed = parse_unified_experimental_excel(content)
 
         if parsed is None:
-            errors.append(ValidationError(
-                code="MISSING_ROLE_ROW",
-                message=(
-                    "Could not detect the two-row header format."
-                ),
-                fix=(
-                    "Row 1 must contain block labels for each column:\n"
-                    "  • INDEPENDENT VARIABLES (or INPUT) for predictor columns\n"
-                    "  • DEPENDENT VARIABLES (or OUTPUT) for response columns\n"
-                    "Row 2 must contain the actual variable names.\n"
-                    "Data starts from Row 3.\n\n"
-                    "Your spreadsheet already has 'INDEPENDENT VARIABLES' and "
-                    "'DEPENDENT VARIABLES' in Row 1 — make sure these labels "
-                    "are present in the cells (not as merged-cell titles that "
-                    "only occupy one column while the rest are blank).\n"
-                    "Each column must have its own label in Row 1."
-                ),
-            ))
+            errors.append(
+                ValidationError(
+                    code="MISSING_ROLE_ROW",
+                    message=("Could not detect the two-row header format."),
+                    fix=(
+                        "Row 1 must contain block labels for each column:\n"
+                        "  • INDEPENDENT VARIABLES (or INPUT) for predictor columns\n"
+                        "  • DEPENDENT VARIABLES (or OUTPUT) for response columns\n"
+                        "Row 2 must contain the actual variable names.\n"
+                        "Data starts from Row 3.\n\n"
+                        "Your spreadsheet already has 'INDEPENDENT VARIABLES' and "
+                        "'DEPENDENT VARIABLES' in Row 1 — make sure these labels "
+                        "are present in the cells (not as merged-cell titles that "
+                        "only occupy one column while the rest are blank).\n"
+                        "Each column must have its own label in Row 1."
+                    ),
+                )
+            )
             return ValidationResult(passed=False, errors=errors)
 
         df, meta = parsed
 
         # ── Check experiment identifier ───────────────────────────────────────
         if meta.experiment_id_col is None:
-            errors.append(ValidationError(
-                code="MISSING_EXPERIMENT_ID",
-                message=(
-                    "No experiment identifier column found. "
-                    "Expected a column named one of: "
-                    "experiment_id, run_id, condition, exp_id, sample_id."
-                ),
-                fix=(
-                    "Name one of your columns 'experiment_id', 'run_id', or 'condition' "
-                    "in Row 2. It can be under any block (INDEPENDENT VARIABLES or otherwise)."
-                ),
-            ))
+            errors.append(
+                ValidationError(
+                    code="MISSING_EXPERIMENT_ID",
+                    message=(
+                        "No experiment identifier column found. "
+                        "Expected a column named one of: "
+                        "experiment_id, run_id, condition, exp_id, sample_id."
+                    ),
+                    fix=(
+                        "Name one of your columns 'experiment_id', 'run_id', or 'condition' "
+                        "in Row 2. It can be under any block (INDEPENDENT VARIABLES or otherwise)."
+                    ),
+                )
+            )
 
         # ── Check time column ─────────────────────────────────────────────────
         if meta.time_col is None:
-            errors.append(ValidationError(
-                code="MISSING_TIME_COLUMN",
-                message=(
-                    "No time column found. "
-                    "Expected a column named one of: "
-                    "time_min, time (min), time, t_min."
-                ),
-                fix=(
-                    "Name one of your INPUT columns 'time (min)' or 'time_min' in Row 2."
-                ),
-            ))
+            errors.append(
+                ValidationError(
+                    code="MISSING_TIME_COLUMN",
+                    message=(
+                        "No time column found. "
+                        "Expected a column named one of: "
+                        "time_min, time (min), time, t_min."
+                    ),
+                    fix=(
+                        "Name one of your INPUT columns 'time (min)' or 'time_min' in Row 2."
+                    ),
+                )
+            )
 
         # ── Check at least one predictor beyond time ──────────────────────────
         if meta.time_col is not None:
             non_time_inputs = [
-                c for c in meta.input_cols
+                c
+                for c in meta.input_cols
                 if c != meta.time_col and c != meta.experiment_id_col
             ]
             if not non_time_inputs:
-                errors.append(ValidationError(
-                    code="NO_INPUT_PREDICTORS",
-                    message="No predictor columns found under INDEPENDENT VARIABLES beyond time.",
-                    fix="Add at least one INPUT column beyond time (e.g. pH, voltage, temperature).",
-                ))
+                errors.append(
+                    ValidationError(
+                        code="NO_INPUT_PREDICTORS",
+                        message="No predictor columns found under INDEPENDENT VARIABLES beyond time.",
+                        fix="Add at least one INPUT column beyond time (e.g. pH, voltage, temperature).",
+                    )
+                )
 
         # ── Check at least one output ─────────────────────────────────────────
         if not meta.output_cols:
-            errors.append(ValidationError(
-                code="NO_OUTPUT_COLUMNS",
-                message="No DEPENDENT VARIABLES columns found.",
-                fix=(
-                    "Label at least one column as DEPENDENT VARIABLES (or OUTPUT) in Row 1 "
-                    "for your response variable (e.g. fluoride yield, concentration)."
-                ),
-            ))
+            errors.append(
+                ValidationError(
+                    code="NO_OUTPUT_COLUMNS",
+                    message="No DEPENDENT VARIABLES columns found.",
+                    fix=(
+                        "Label at least one column as DEPENDENT VARIABLES (or OUTPUT) in Row 1 "
+                        "for your response variable (e.g. fluoride yield, concentration)."
+                    ),
+                )
+            )
 
         # ── Check minimum data rows ───────────────────────────────────────────
         if len(df) < self.MIN_DATA_ROWS:
-            errors.append(ValidationError(
-                code="INSUFFICIENT_DATA",
-                message=f"Only {len(df)} data rows found. At least {self.MIN_DATA_ROWS} required.",
-                fix="Ensure data starts at Row 3 and contains enough observations.",
-            ))
+            errors.append(
+                ValidationError(
+                    code="INSUFFICIENT_DATA",
+                    message=f"Only {len(df)} data rows found. At least {self.MIN_DATA_ROWS} required.",
+                    fix="Ensure data starts at Row 3 and contains enough observations.",
+                )
+            )
 
         if errors:
             return ValidationResult(passed=False, errors=errors, warnings=warnings)
@@ -204,24 +217,30 @@ class SchemaValidator:
 
         logger.info(
             "Schema validation passed: %s rows, %s inputs, %s outputs, exp_id=%s, time=%s",
-            len(df), len(meta.input_cols), len(meta.output_cols),
-            meta.experiment_id_col, meta.time_col,
+            len(df),
+            len(meta.input_cols),
+            len(meta.output_cols),
+            meta.experiment_id_col,
+            meta.time_col,
         )
         return ValidationResult(passed=True, warnings=warnings, df=df, meta=meta)
 
     def _validate_csv(self, content: bytes, suffix: str) -> ValidationResult:
         import io
+
         sep = "\t" if suffix == ".tsv" else ","
         try:
             df = pd.read_csv(io.BytesIO(content), sep=sep, low_memory=False)
         except Exception as e:
             return ValidationResult(
                 passed=False,
-                errors=[ValidationError(
-                    code="PARSE_ERROR",
-                    message=f"Could not parse file: {e}",
-                    fix="Check that the file is a valid CSV or TSV.",
-                )],
+                errors=[
+                    ValidationError(
+                        code="PARSE_ERROR",
+                        message=f"Could not parse file: {e}",
+                        fix="Check that the file is a valid CSV or TSV.",
+                    )
+                ],
             )
 
         errors: list[ValidationError] = []
@@ -232,30 +251,50 @@ class SchemaValidator:
             for c in df.columns
         ]
 
-        id_candidates = ("experiment_id", "exp_id", "run_id", "sample_id", "condition", "cond")
-        time_candidates = ("time_min", "time_mins", "time", "t_min", "time_(min)", "time(min)")
+        id_candidates = (
+            "experiment_id",
+            "exp_id",
+            "run_id",
+            "sample_id",
+            "condition",
+            "cond",
+        )
+        time_candidates = (
+            "time_min",
+            "time_mins",
+            "time",
+            "t_min",
+            "time_(min)",
+            "time(min)",
+        )
 
         id_col = next((c for c in df.columns if c in id_candidates), None)
         time_col = next((c for c in df.columns if c in time_candidates), None)
 
         if id_col is None:
-            errors.append(ValidationError(
-                code="MISSING_EXPERIMENT_ID",
-                message="No experiment identifier column found.",
-                fix="Add a column named 'experiment_id', 'run_id', or 'condition'.",
-            ))
+            errors.append(
+                ValidationError(
+                    code="MISSING_EXPERIMENT_ID",
+                    message="No experiment identifier column found.",
+                    fix="Add a column named 'experiment_id', 'run_id', or 'condition'.",
+                )
+            )
         if time_col is None:
-            errors.append(ValidationError(
-                code="MISSING_TIME_COLUMN",
-                message="No time column found.",
-                fix="Add a column named 'time_min' or 'time'.",
-            ))
+            errors.append(
+                ValidationError(
+                    code="MISSING_TIME_COLUMN",
+                    message="No time column found.",
+                    fix="Add a column named 'time_min' or 'time'.",
+                )
+            )
         if len(df) < self.MIN_DATA_ROWS:
-            errors.append(ValidationError(
-                code="INSUFFICIENT_DATA",
-                message=f"Only {len(df)} data rows found.",
-                fix=f"At least {self.MIN_DATA_ROWS} rows are required.",
-            ))
+            errors.append(
+                ValidationError(
+                    code="INSUFFICIENT_DATA",
+                    message=f"Only {len(df)} data rows found.",
+                    fix=f"At least {self.MIN_DATA_ROWS} rows are required.",
+                )
+            )
 
         if errors:
             return ValidationResult(passed=False, errors=errors, warnings=warnings)

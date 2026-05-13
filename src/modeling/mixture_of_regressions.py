@@ -34,12 +34,12 @@ logger = get_logger(__name__)
 class MixtureOfRegressionsResult:
     """Result from fitting a mixture of regressions model."""
 
-    k: int                                    # number of regimes
-    coefficients: dict[int, dict[str, float]] # regime_id → {var: coef}
-    time_effects: dict[int, dict[float, float]] # regime_id → {time: effect}
-    gating_weights: np.ndarray                # shape (K, n_features) — gating fn params
-    regime_probs: np.ndarray                  # shape (n_obs, K) — posterior probabilities
-    regime_assignments: np.ndarray            # shape (n_obs,) — hard assignments (argmax)
+    k: int  # number of regimes
+    coefficients: dict[int, dict[str, float]]  # regime_id → {var: coef}
+    time_effects: dict[int, dict[float, float]]  # regime_id → {time: effect}
+    gating_weights: np.ndarray  # shape (K, n_features) — gating fn params
+    regime_probs: np.ndarray  # shape (n_obs, K) — posterior probabilities
+    regime_assignments: np.ndarray  # shape (n_obs,) — hard assignments (argmax)
     bic: float
     aic: float
     log_likelihood: float
@@ -131,16 +131,12 @@ class MixtureOfRegressions:
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Extract and clean numeric arrays."""
         # Numeric conversion
-        y_raw = pd.to_numeric(df[outcome_col], errors='coerce')
-        X_raw = df[predictor_cols].apply(pd.to_numeric, errors='coerce')
-        times_raw = pd.to_numeric(df[meta.time_col], errors='coerce')
+        y_raw = pd.to_numeric(df[outcome_col], errors="coerce")
+        X_raw = df[predictor_cols].apply(pd.to_numeric, errors="coerce")
+        times_raw = pd.to_numeric(df[meta.time_col], errors="coerce")
 
         # Valid rows (no NaN in y, times, or any predictor)
-        valid = (
-            y_raw.notna()
-            & times_raw.notna()
-            & X_raw.notna().all(axis=1)
-        )
+        valid = y_raw.notna() & times_raw.notna() & X_raw.notna().all(axis=1)
         valid_idx = np.where(valid)[0]
 
         y = y_raw[valid].values
@@ -222,8 +218,7 @@ class MixtureOfRegressions:
         time_effects = {}
         for regime_id in range(k):
             time_effects[regime_id + 1] = {
-                float(t): float(alpha[regime_id, time_to_idx[t]])
-                for t in unique_times
+                float(t): float(alpha[regime_id, time_to_idx[t]]) for t in unique_times
             }
 
         return MixtureOfRegressionsResult(
@@ -267,7 +262,10 @@ class MixtureOfRegressions:
             t_idx = time_to_idx[times[i]]
             for j in range(k):
                 mu = X[i] @ beta[j] + alpha[j, t_idx]
-                log_lik[i, j] = -0.5 * np.log(2 * np.pi * sigma2[j]) - 0.5 * (y[i] - mu) ** 2 / sigma2[j]
+                log_lik[i, j] = (
+                    -0.5 * np.log(2 * np.pi * sigma2[j])
+                    - 0.5 * (y[i] - mu) ** 2 / sigma2[j]
+                )
 
         # Posterior: γ_ik ∝ π_k(x_i) · p(y_i | x_i, z_i=k)
         log_gamma = np.log(pi + 1e-10) + log_lik
@@ -338,10 +336,12 @@ class MixtureOfRegressions:
                 # Accumulate beta (average across timepoints weighted by gamma)
                 beta_new[j] += beta_t * gamma_t.sum()
 
-            beta_new[j] /= (gamma_j.sum() + 1e-10)
+            beta_new[j] /= gamma_j.sum() + 1e-10
 
             # Update variance
-            mu = X @ beta_new[j] + np.array([alpha_new[j, time_to_idx[times[i]]] for i in range(n)])
+            mu = X @ beta_new[j] + np.array(
+                [alpha_new[j, time_to_idx[times[i]]] for i in range(n)]
+            )
             sigma2_new[j] = np.average((y - mu) ** 2, weights=gamma_j)
 
         return W_new, beta_new, alpha_new, sigma2_new
@@ -370,7 +370,11 @@ class MixtureOfRegressions:
             p_mix = 0.0
             for j in range(k):
                 mu = X[i] @ beta[j] + alpha[j, t_idx]
-                p_k = pi[i, j] * np.exp(-0.5 * (y[i] - mu) ** 2 / sigma2[j]) / np.sqrt(2 * np.pi * sigma2[j])
+                p_k = (
+                    pi[i, j]
+                    * np.exp(-0.5 * (y[i] - mu) ** 2 / sigma2[j])
+                    / np.sqrt(2 * np.pi * sigma2[j])
+                )
                 p_mix += p_k
             ll += np.log(p_mix + 1e-10)
 

@@ -122,7 +122,9 @@ class DatasetUploadEncoding(Base):
 
     __tablename__ = "dataset_upload_encodings"
     __table_args__ = (
-        UniqueConstraint("user_sub", "filename", name="uq_dataset_upload_enc_user_file"),
+        UniqueConstraint(
+            "user_sub", "filename", name="uq_dataset_upload_enc_user_file"
+        ),
         Index("ix_dataset_upload_enc_user", "user_sub"),
     )
 

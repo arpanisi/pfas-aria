@@ -212,11 +212,7 @@ def _hypothesis_rationale_llm(
         from src.utils.resilience import get_llm_circuit
 
         settings = get_settings()
-        cap = (
-            request_timeout_seconds
-            if request_timeout_seconds is not None
-            else 120
-        )
+        cap = request_timeout_seconds if request_timeout_seconds is not None else 120
         effective = min(int(cap), int(settings.llm.request_timeout))
 
         def _do() -> str:
@@ -281,9 +277,13 @@ def _fallback_hypothesis_rationale(
             + "; ".join(t[:120] for t in citation_titles[:2])
             + "."
         )
-    return " ".join(parts) if parts else (
-        f"Model fit summary: R²={r_squared:.3f}, adj. R²={adj_r_squared:.3f}. "
-        "Interpretation pending richer variable structure."
+    return (
+        " ".join(parts)
+        if parts
+        else (
+            f"Model fit summary: R²={r_squared:.3f}, adj. R²={adj_r_squared:.3f}. "
+            "Interpretation pending richer variable structure."
+        )
     )
 
 

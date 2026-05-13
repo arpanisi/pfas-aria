@@ -183,7 +183,9 @@ def _preview_cell_str(value: object) -> str:
     return text
 
 
-def _dataset_preview_rows(df: pd.DataFrame, *, limit: int = 100) -> list[dict[str, str]]:
+def _dataset_preview_rows(
+    df: pd.DataFrame, *, limit: int = 100
+) -> list[dict[str, str]]:
     """First ``limit`` rows as column name -> display string (post-cleaning).
 
     Avoids ``DataFrame.iterrows()`` which does not preserve dtypes and can surface
@@ -548,7 +550,9 @@ async def _persist_stats_bundles_raw(
             r_squared=float(m.get("r_squared", 0.0)),
             adj_r_squared=float(m.get("adj_r_squared", 0.0)),
             n_observations=int(m.get("n_observations", 0)),
-            coefficients=_sanitize_float_json(dict(m.get("coefficients") or {}), fallback=0.0),
+            coefficients=_sanitize_float_json(
+                dict(m.get("coefficients") or {}), fallback=0.0
+            ),
             p_values=_sanitize_float_json(dict(m.get("p_values") or {}), fallback=1.0),
             significant_variables=list(m.get("significant_variables") or []),
             match_score=0.0,
@@ -568,26 +572,36 @@ async def _load_stats_candidates(
     """Load pre-computed OLS candidates from DB; returns empty list if none found."""
     regime_label = f"regime_{regime_id}"
     hyp_rows = (
-        await db.execute(select(Hypothesis).where(Hypothesis.run_id == run_id))
-    ).scalars().all()
+        (await db.execute(select(Hypothesis).where(Hypothesis.run_id == run_id)))
+        .scalars()
+        .all()
+    )
     if not hyp_rows:
         return []
     out: list[dict] = []
     for hyp in hyp_rows:
         meta = next(
-            (r for r in (hyp.rag_support or []) if isinstance(r, dict) and r.get("_stats_meta")),
+            (
+                r
+                for r in (hyp.rag_support or [])
+                if isinstance(r, dict) and r.get("_stats_meta")
+            ),
             None,
         )
         if not meta:
             continue
         mr = (
-            await db.execute(
-                select(ModelResult).where(
-                    ModelResult.hypothesis_id == hyp.id,
-                    ModelResult.regime_label == regime_label,
+            (
+                await db.execute(
+                    select(ModelResult).where(
+                        ModelResult.hypothesis_id == hyp.id,
+                        ModelResult.regime_label == regime_label,
+                    )
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if not mr:
             continue
         out.append(
@@ -882,9 +896,7 @@ async def upload_dataset(
         encodings=encodings,
         variable_layout=layout,
     )
-    metadata_cols = (
-        list(unified_meta.metadata_cols) if unified_meta is not None else []
-    )
+    metadata_cols = list(unified_meta.metadata_cols) if unified_meta is not None else []
     all_columns = [str(c) for c in df.columns]
 
     return DatasetPreview(
@@ -1241,7 +1253,9 @@ async def screening_grounded_start(
     return GroundingJobStart(job_id=job_id)
 
 
-@router.get("/screening-grounded/progress/{job_id}", response_model=GroundingJobProgress)
+@router.get(
+    "/screening-grounded/progress/{job_id}", response_model=GroundingJobProgress
+)
 async def screening_grounded_progress(
     job_id: str,
     user: CurrentUser,
@@ -1270,7 +1284,9 @@ async def screening_grounded_progress(
     )
 
 
-async def _run_grounding_job(job_id: str, body: ScreeningGroundedIn, n_papers: int) -> None:
+async def _run_grounding_job(
+    job_id: str, body: ScreeningGroundedIn, n_papers: int
+) -> None:
     """Background coroutine: run screening grounding and emit progress updates."""
     from src.db.postgres import AsyncSessionFactory
 
@@ -1283,7 +1299,9 @@ async def _run_grounding_job(job_id: str, body: ScreeningGroundedIn, n_papers: i
         rid_in = (body.run_id or "").strip()
         if rid_in:
             async with AsyncSessionFactory() as session:
-                precomputed = await _load_stats_candidates(session, rid_in, body.regime_id)
+                precomputed = await _load_stats_candidates(
+                    session, rid_in, body.regime_id
+                )
 
         loop = asyncio.get_event_loop()
 
@@ -1336,7 +1354,11 @@ async def _run_grounding_job(job_id: str, body: ScreeningGroundedIn, n_papers: i
                     with _grounding_jobs_lock:
                         job = _grounding_jobs.get(job_id)
                     if job and not job.get("done") and job.get("pct", 0) < 45:
-                        _set_job(job_id, pct=pct, stage="Fitting models & retrieving literature…")
+                        _set_job(
+                            job_id,
+                            pct=pct,
+                            stage="Fitting models & retrieving literature…",
+                        )
 
             def _sync_full() -> dict:
                 from src.pipeline.screening_grounded import (
@@ -1347,7 +1369,10 @@ async def _run_grounding_job(job_id: str, body: ScreeningGroundedIn, n_papers: i
                 df, _hdr, unified_meta = _read_normalized_dataframe(path)
                 retriever = RAGPipeline().build(force_rebuild=False)
                 payload = run_screening_grounded_for_regime(
-                    df, unified_meta=unified_meta, regime_id=body.regime_id, retriever=retriever
+                    df,
+                    unified_meta=unified_meta,
+                    regime_id=body.regime_id,
+                    retriever=retriever,
                 )
                 payload["dataset_n_rows"] = len(df)
                 payload["dataset_n_cols"] = len(df.columns)
@@ -1373,7 +1398,9 @@ async def _run_grounding_job(job_id: str, body: ScreeningGroundedIn, n_papers: i
                 ScreeningBundleOut(
                     hypothesis=ScreeningHypothesisOut(**b["hypothesis"]),
                     model_result=ScreeningModelOut(**b["model_result"]),
-                    citations=[ScreeningCitationOut(**c) for c in b.get("citations", [])],
+                    citations=[
+                        ScreeningCitationOut(**c) for c in b.get("citations", [])
+                    ],
                 )
             )
 
@@ -1409,7 +1436,9 @@ async def _run_grounding_job(job_id: str, body: ScreeningGroundedIn, n_papers: i
                 citations=b.citations,
             )
 
-        bundles_out = list(await asyncio.gather(*(_one_tracked(b) for b in bundles_out)))
+        bundles_out = list(
+            await asyncio.gather(*(_one_tracked(b) for b in bundles_out))
+        )
 
         _set_job(job_id, pct=93, stage="Saving results…")
 

@@ -495,7 +495,9 @@ def run_grounding_from_precomputed(
             lit_queries, top_k=8, min_similarity=LIT_QUERY_MIN_SIM
         )
         for c, chunks in zip(candidates, lit_chunk_lists):
-            c.lit_score = float(max((ch.similarity_score for ch in chunks), default=0.0))
+            c.lit_score = float(
+                max((ch.similarity_score for ch in chunks), default=0.0)
+            )
     except Exception as e:  # noqa: BLE001
         logger.warning("Batch lit retrieval failed, using zero scores: %s", e)
 
@@ -569,7 +571,8 @@ def run_grounding_from_precomputed(
                     "p_values": {k: round(v, 6) for k, v in c.p_values.items()},
                     "significant_variables": c.significant_variables,
                     "match_score": round(min(1.0, c.lit_score), 4),
-                    "validation_passed": c.r_squared >= MIN_R2 and c.lit_score >= MIN_LIT,
+                    "validation_passed": c.r_squared >= MIN_R2
+                    and c.lit_score >= MIN_LIT,
                 },
                 "citations": citations,
             }

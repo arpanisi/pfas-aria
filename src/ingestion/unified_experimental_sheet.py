@@ -134,7 +134,13 @@ def _likely_name_row(row: pd.Series) -> bool:
 
 def normalize_dataframe_columns_inplace(df: pd.DataFrame) -> None:
     df.columns = [
-        str(c).strip().lower().replace(" ", "_").replace("-", "_").replace("(", "_").replace(")", "_")
+        str(c)
+        .strip()
+        .lower()
+        .replace(" ", "_")
+        .replace("-", "_")
+        .replace("(", "_")
+        .replace(")", "_")
         for c in df.columns
     ]
 
@@ -252,10 +258,9 @@ class UnifiedSheetMeta:
         """
         exclude = {self.experiment_id_col, self.time_col}
         return [
-            c for c in self.input_cols
-            if c not in exclude
-            and c in df.columns
-            and df[c].nunique(dropna=True) > 1
+            c
+            for c in self.input_cols
+            if c not in exclude and c in df.columns and df[c].nunique(dropna=True) > 1
         ]
 
     def constant_input_cols(self, df: pd.DataFrame) -> list[str]:
@@ -266,19 +271,16 @@ class UnifiedSheetMeta:
         """
         exclude = {self.experiment_id_col, self.time_col}
         return [
-            c for c in self.input_cols
-            if c not in exclude
-            and c in df.columns
-            and df[c].nunique(dropna=True) <= 1
+            c
+            for c in self.input_cols
+            if c not in exclude and c in df.columns and df[c].nunique(dropna=True) <= 1
         ]
 
 
 # ── Required column detection ─────────────────────────────────────────────────
 
 
-def _find_required_col(
-    candidates: tuple[str, ...], available: list[str]
-) -> str | None:
+def _find_required_col(candidates: tuple[str, ...], available: list[str]) -> str | None:
     """
     Return the first column whose normalised name matches any candidate.
     Tries exact match first, then startswith.
@@ -325,12 +327,11 @@ def parse_unified_experimental_excel(
 
     types_row = full.iloc[role_i]
     names_row = full.iloc[name_i]
-    data = full.iloc[name_i + 1:].copy()
+    data = full.iloc[name_i + 1 :].copy()
 
     n_cols = int(data.shape[1])
     raw_headers = [
-        names_row.iloc[j] if j < len(names_row) else f"col_{j}"
-        for j in range(n_cols)
+        names_row.iloc[j] if j < len(names_row) else f"col_{j}" for j in range(n_cols)
     ]
     col_names = _make_unique_column_names([str(x) for x in raw_headers])
     data.columns = col_names
@@ -342,7 +343,9 @@ def parse_unified_experimental_excel(
 
     # Search for required columns across metadata + input + all cols
     all_cols = metadata_cols + input_cols + output_cols
-    id_col = _find_required_col(_EXPERIMENT_ID_CANDIDATES, metadata_cols + input_cols + all_cols)
+    id_col = _find_required_col(
+        _EXPERIMENT_ID_CANDIDATES, metadata_cols + input_cols + all_cols
+    )
     time_col = _find_required_col(_TIME_CANDIDATES, input_cols + all_cols)
 
     # Experiment id and time are layout keys, not regression inputs; keep them out of input_cols
@@ -365,9 +368,13 @@ def parse_unified_experimental_excel(
     )
     logger.info(
         "Unified layout: role_row=%s name_row=%s metadata=%s inputs=%s outputs=%s exp_id=%s time=%s",
-        role_i, name_i,
-        len(metadata_cols), len(input_cols), len(output_cols),
-        id_col, time_col,
+        role_i,
+        name_i,
+        len(metadata_cols),
+        len(input_cols),
+        len(output_cols),
+        id_col,
+        time_col,
     )
     return data.reset_index(drop=True), meta
 

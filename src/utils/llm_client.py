@@ -95,9 +95,7 @@ def _openrouter_chat(
                         content = str(text)
                         break
         if not content:
-            raise LLMError(
-                f"Unexpected OpenRouter response shape: {repr(data)[:500]}"
-            )
+            raise LLMError(f"Unexpected OpenRouter response shape: {repr(data)[:500]}")
         return content.strip()
     except LLMError:
         raise

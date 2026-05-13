@@ -25,14 +25,29 @@ from src.utils.logging import get_logger
 logger = get_logger(__name__)
 
 # Strings that represent "not measured / not applicable" in spreadsheets.
-_PLACEHOLDERS = frozenset({
-    "-", "--", "---",
-    "na", "n/a", "n.a.",
-    "nan", "none", "null",
-    "nd", "n.d.", "nr", "n.r.",
-    "bdl", "bl", "<dl", "<bdl",
-    "not detected", "not measured",
-})
+_PLACEHOLDERS = frozenset(
+    {
+        "-",
+        "--",
+        "---",
+        "na",
+        "n/a",
+        "n.a.",
+        "nan",
+        "none",
+        "null",
+        "nd",
+        "n.d.",
+        "nr",
+        "n.r.",
+        "bdl",
+        "bl",
+        "<dl",
+        "<bdl",
+        "not detected",
+        "not measured",
+    }
+)
 
 
 def _is_numeric_with_placeholders(series: pd.Series) -> bool:

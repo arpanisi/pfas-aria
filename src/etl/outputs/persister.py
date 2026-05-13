@@ -106,11 +106,7 @@ class OutputPersister:
 
         for hyp_obj in hypotheses_list:
             matching = next(
-                (
-                    hr
-                    for hr in hypothesis_results
-                    if hr.hypothesis.id == hyp_obj.id
-                ),
+                (hr for hr in hypothesis_results if hr.hypothesis.id == hyp_obj.id),
                 None,
             )
 

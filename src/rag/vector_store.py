@@ -152,7 +152,8 @@ class VectorStore:
             },
         )
         rows = [
-            r for r in cursor
+            r
+            for r in cursor
             if r.get("embedding") is not None
             and isinstance(r["embedding"], list)
             and len(r["embedding"]) > 0
