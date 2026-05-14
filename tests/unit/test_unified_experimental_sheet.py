@@ -5,14 +5,14 @@ from __future__ import annotations
 import io
 
 import pandas as pd
+import pytest
 
-from src.ingestion.legacy_pfca_regime_masks import (
-    assign_pfca_regime_masks_from_column_lists,
+from src.ingestion.dataset_screening_layout import (
+    assign_screening_layout_from_column_lists,
 )
 from src.ingestion.unified_experimental_sheet import (
     load_excel_bytes_with_layout,
     parse_unified_experimental_excel,
-    select_regime_pfas_input_mg_l_columns,
 )
 
 
@@ -76,40 +76,42 @@ def test_parse_unified_experimental_excel_detects_layout() -> None:
     assert parsed is not None
     df, meta = parsed
     assert len(df) == 5
-    assert len(meta.input_cols) == 8
+    assert meta.experiment_id_col == "condition"
+    assert meta.time_col == "time_min"
+    # condition + time_min are reserved, not listed as modelling inputs
+    assert len(meta.input_cols) == 6
+    assert "condition" not in meta.input_cols
+    assert "time_min" not in meta.input_cols
     assert len(meta.output_cols) == 3
-    assert "pfoa_mg/l" in meta.input_cols
-    assert "out_fl_mg/l" in meta.output_cols
+    # Headers are snake_cased; "/" becomes "_" (see _make_unique_column_names).
+    assert "pfoa_mg_l" in meta.input_cols
+    assert "out_fl_mg_l" in meta.output_cols
 
 
-def test_unified_layout_regime_assignment_matches_notebook_masks() -> None:
+def test_unified_layout_screening_uses_full_dataset_segment() -> None:
     content = _minimal_unified_workbook_bytes()
     parsed = parse_unified_experimental_excel(content)
     assert parsed is not None
     df, meta = parsed
-    res = assign_pfca_regime_masks_from_column_lists(
+    res = assign_screening_layout_from_column_lists(
         df,
         meta.input_cols,
         meta.output_cols,
         replace_no_in_inputs=False,
     )
-    assert res.regime_row_counts == {1: 1, 2: 1, 3: 1, 4: 1, 5: 1}
-    assert sum(res.regime_row_counts.values()) == len(df)
-    assert res.regimes[1].index.tolist() == [0]
-    assert res.regimes[2].index.tolist() == [1]
-    assert res.regimes[3].index.tolist() == [2]
-    assert res.regimes[4].index.tolist() == [3]
-    assert res.regimes[5].index.tolist() == [4]
+    assert res.regimes.keys() == {1}
+    assert len(res.regimes[1]) == len(df)
 
 
-def test_load_excel_bytes_with_layout_falls_back_without_role_row(tmp_path) -> None:
+def test_load_excel_bytes_with_layout_requires_unified_two_row_header(tmp_path) -> None:
+    """Plain single-header Excel is rejected; callers must use the unified layout."""
+    from src.utils.exceptions import IngestionError
+
     p = tmp_path / "plain.xlsx"
     pd.DataFrame({"a": [1], "b": [2]}).to_excel(p, index=False)
     content = p.read_bytes()
-    df, hdr, meta = load_excel_bytes_with_layout(content)
-    assert meta is None
-    assert hdr is not None
-    assert "a" in [str(c).lower() for c in df.columns]
+    with pytest.raises(IngestionError, match="two-row header"):
+        load_excel_bytes_with_layout(content)
 
 
 def test_title_preamble_before_role_row() -> None:
@@ -143,28 +145,3 @@ def test_title_preamble_before_role_row() -> None:
     assert len(df) == 1
     assert meta.role_row_index == 1
     assert meta.name_row_index == 2
-
-
-def test_select_regime_pfas_input_prefers_initial_when_enough_tagged() -> None:
-    inputs = [
-        "reagent mg/L",
-        "pfoa_initial mg/L",
-        "pfba_initial mg/L",
-        "pfbs_initial mg/L",
-        "spare_initial mg/L",
-    ]
-    w: list[str] = []
-    all_mg, mask_cols = select_regime_pfas_input_mg_l_columns(inputs, warnings=w)
-    assert len(all_mg) == 5
-    assert len(mask_cols) == 4
-    assert "reagent mg/L" in all_mg
-    assert "reagent mg/L" not in mask_cols
-    assert all("initial" in c.lower() for c in mask_cols)
-
-
-def test_select_regime_pfas_input_falls_back_when_few_initial_tags() -> None:
-    inputs = ["pfoa mg/L", "pfba_initial mg/L", "other mg/L", "pfbs mg/L"]
-    w: list[str] = []
-    all_mg, mask_cols = select_regime_pfas_input_mg_l_columns(inputs, warnings=w)
-    assert all_mg == mask_cols
-    assert len(mask_cols) == 4

@@ -197,3 +197,144 @@ class NarrativeGenerator:
             f"effect on {', '.join(consistency.outputs_significant) if consistency.outputs_significant else 'the outcome'}, "
             f"consistent across {consistency.consistency_score:.0%} of tested outputs."
         )
+
+
+# ── Per-hypothesis mechanistic rationale (dashboard / Postgres) ───────────────
+
+
+def _hypothesis_rationale_llm(
+    prompt: str,
+    fallback: str,
+    *,
+    request_timeout_seconds: int | None = None,
+) -> str:
+    try:
+        from src.utils.resilience import get_llm_circuit
+
+        settings = get_settings()
+        cap = request_timeout_seconds if request_timeout_seconds is not None else 120
+        effective = min(int(cap), int(settings.llm.request_timeout))
+
+        def _do() -> str:
+            return chat_completion(
+                [{"role": "user", "content": prompt}],
+                max_tokens=220,
+                temperature=0.35,
+                timeout=effective,
+            )
+
+        return get_llm_circuit().call(_do) or fallback
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Hypothesis rationale LLM failed: %s", e)
+        return fallback
+
+
+def _compact_coefs(coefs: dict[str, float], *, limit: int = 14) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for i, (k, v) in enumerate(coefs.items()):
+        if i >= limit:
+            break
+        try:
+            out[str(k)] = round(float(v), 4)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _fallback_hypothesis_rationale(
+    *,
+    significant_variables: list[str],
+    coefficients: dict[str, float],
+    r_squared: float,
+    adj_r_squared: float,
+    validation_passed: bool,
+    citation_titles: list[str],
+) -> str:
+    parts: list[str] = []
+    if significant_variables:
+        dirs = []
+        for v in significant_variables[:5]:
+            c = coefficients.get(v)
+            if c is None:
+                continue
+            try:
+                dirs.append(f"{v} ({'+' if float(c) >= 0 else ''}{float(c):.3f})")
+            except (TypeError, ValueError):
+                dirs.append(v)
+        if dirs:
+            parts.append(
+                "The strongest statistical signal involves "
+                + ", ".join(dirs)
+                + ", suggesting these predictors align most closely with the fitted response."
+            )
+    parts.append(
+        f"In-sample fit is moderate (R²={r_squared:.3f}, adj. R²={adj_r_squared:.3f}) "
+        f"and validation {'passed' if validation_passed else 'did not fully pass'}."
+    )
+    if citation_titles:
+        parts.append(
+            "Corpus matches include: "
+            + "; ".join(t[:120] for t in citation_titles[:2])
+            + "."
+        )
+    return (
+        " ".join(parts)
+        if parts
+        else (
+            f"Model fit summary: R²={r_squared:.3f}, adj. R²={adj_r_squared:.3f}. "
+            "Interpretation pending richer variable structure."
+        )
+    )
+
+
+def generate_hypothesis_rationale_from_model_evidence(
+    *,
+    hypothesis_description: str,
+    primary_variables: list[str],
+    model_family: str,
+    r_squared: float,
+    adj_r_squared: float,
+    significant_variables: list[str],
+    coefficients: dict[str, float],
+    validation_passed: bool,
+    citation_titles: list[str],
+    request_timeout_seconds: int | None = None,
+) -> str:
+    """
+    Write 2–3 sentences interpreting a fitted model for dashboard ``rationale``.
+
+    Uses the configured LLM when available; otherwise a deterministic fallback.
+
+    ``request_timeout_seconds`` caps the HTTP timeout for this call only (e.g. batch
+    screening uses a lower cap so several bundles stay within one API request).
+    """
+    coef_compact = _compact_coefs(coefficients)
+    titles = [t for t in citation_titles if t][:3]
+    fallback = _fallback_hypothesis_rationale(
+        significant_variables=significant_variables,
+        coefficients=coefficients,
+        r_squared=r_squared,
+        adj_r_squared=adj_r_squared,
+        validation_passed=validation_passed,
+        citation_titles=titles,
+    )
+    prompt = f"""You are interpreting a statistical model result for a scientific hypothesis.
+
+Hypothesis: {hypothesis_description}
+Primary variables: {json.dumps(primary_variables)}
+Model family: {model_family}
+R²: {r_squared:.4f}, adjusted R²: {adj_r_squared:.4f}
+Variables significant at p<0.05: {json.dumps(significant_variables)}
+Coefficients (subset): {json.dumps(coef_compact)}
+Validation checks overall passed: {validation_passed}
+Top literature / corpus match titles: {json.dumps(titles)}
+
+Write 2-3 sentences interpreting what these results mean mechanistically for a domain scientist.
+Be specific about which variables drive the association and the direction of the effect where coefficients support it.
+Do not restate the hypothesis verbatim. Do not invent variables or statistics not listed.
+Write only the interpretation paragraph, no heading or bullet list."""
+    return _hypothesis_rationale_llm(
+        prompt.strip(),
+        fallback,
+        request_timeout_seconds=request_timeout_seconds,
+    )

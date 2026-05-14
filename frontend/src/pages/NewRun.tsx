@@ -1,18 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
 import { useDropzone } from "react-dropzone";
 import toast from "react-hot-toast";
-import { getCorpusStats, getLegacySegmentationPreview } from "@/api/endpoints";
 import { useAutomatedScreeningIteration, useUploadDataset } from "@/hooks/usePipeline";
 import {
   clearNewRunDraft,
   loadNewRunDraft,
   saveNewRunDraft,
 } from "@/lib/newRunDraft";
-import type { ColumnInfo, DatasetPreview, LegacyRegimeSummary } from "@/types";
+import type { ColumnInfo, DatasetPreview } from "@/types";
 
-type Step = "upload" | "configure" | "hypotheses";
+/** Fallback column index slice when the file has no unified layout (CSV / plain Excel). */
+const LEGACY_INPUT_START = 2;
+const LEGACY_INPUT_END = 37;
+const LEGACY_OUTPUT_START = 37;
+
+type Step = "upload" | "configure" | "clean_preview" | "hypotheses";
+
+/** Shown in the header after a file exists (upload is implicit: drop / replace only). */
+const POST_UPLOAD_STEPS: Step[] = ["configure", "clean_preview", "hypotheses"];
+const STEP_PILL_LABELS_AFTER_UPLOAD = ["Configure", "Clean data", "Hypotheses"] as const;
 
 type UploadLocationState = { preview?: DatasetPreview };
 
@@ -33,9 +40,9 @@ export function NewRun() {
 
   const [progressMsgIdx, setProgressMsgIdx] = useState(0);
   const progressMessages = [
-    "Scanning inputs, outputs, and regime structure…",
+    "Scanning inputs, outputs, and column variability…",
     "Exploring variable mixes and multicollinearity patterns…",
-    "Building the hypothesis space across regimes…",
+    "Building the hypothesis space for signal discovery…",
     "Fitting statistical models and counting tests…",
   ] as const;
 
@@ -108,50 +115,24 @@ export function NewRun() {
     disabled: uploading,
   });
 
-  const [selectedRegimeId, setSelectedRegimeId] = useState<number | null>(null);
+  /** Input / output column names from upload, or legacy index slice on ``preview.columns`` order. */
+  const layoutInputCols = useMemo(() => {
+    if (!preview?.columns?.length) return [];
+    const fromUpload = preview.input_cols?.filter(Boolean) ?? [];
+    if (fromUpload.length) return fromUpload;
+    const names = preview.columns.map((c) => c.name);
+    if (names.length <= LEGACY_INPUT_START) return [];
+    return names.slice(LEGACY_INPUT_START, Math.min(LEGACY_INPUT_END, names.length));
+  }, [preview]);
 
-  const segQuery = useQuery({
-    queryKey: ["legacySegmentation", preview?.filename],
-    queryFn: () => getLegacySegmentationPreview(preview!.filename),
-    enabled:
-      !!preview?.filename && (step === "configure" || step === "hypotheses"),
-    staleTime: 60_000,
-    retry: 0,
-  });
-
-  useEffect(() => {
-    const regimes = segQuery.data?.regimes;
-    if (!regimes?.length) return;
-    setSelectedRegimeId((prev) => {
-      const ids = new Set(regimes.map((r) => r.regime_id));
-      if (prev != null && ids.has(prev)) return prev;
-      return regimes[0].regime_id;
-    });
-  }, [segQuery.data]);
-
-  useEffect(() => {
-    if (step !== "configure" || !preview) return;
-    if (!segQuery.isFetched) return;
-    const d = segQuery.data;
-    const nums = preview.columns.filter((c: ColumnInfo) => c.is_numeric).map((c: ColumnInfo) => c.name);
-    if (!d?.regimes?.length || (!(d.input_cols?.length) && !(d.output_cols?.length))) {
-      const oc = outcome && nums.includes(outcome) ? outcome : nums[0] ?? "";
-      setOutcome(oc);
-      setFeatures(nums.filter((n) => n !== oc));
-      return;
-    }
-    const rid = selectedRegimeId ?? d.regimes[0].regime_id;
-    const regime = d.regimes.find((r) => r.regime_id === rid);
-    if (!regime) return;
-    const vi = new Set(regime.non_constant_input_cols);
-    const varyingIn = d.input_cols.filter((n) => vi.has(n));
-    const vo = new Set(regime.non_constant_output_cols);
-    const varyingOut = d.output_cols.filter((n) => vo.has(n));
-    const oc = varyingOut[0] ?? d.output_cols[0] ?? nums[0] ?? "";
-    setOutcome(oc);
-    const ins = varyingIn.length ? varyingIn : d.input_cols;
-    setFeatures(ins.filter((n) => n !== oc));
-  }, [step, preview, segQuery.isFetched, segQuery.data, selectedRegimeId, outcome]);
+  const layoutOutputCols = useMemo(() => {
+    if (!preview?.columns?.length) return [];
+    const fromUpload = preview.output_cols?.filter(Boolean) ?? [];
+    if (fromUpload.length) return fromUpload;
+    const names = preview.columns.map((c) => c.name);
+    if (names.length <= LEGACY_OUTPUT_START) return [];
+    return names.slice(LEGACY_OUTPUT_START);
+  }, [preview]);
 
   const columnByName = useMemo(() => {
     const m = new Map<string, ColumnInfo>();
@@ -159,95 +140,25 @@ export function NewRun() {
     return m;
   }, [preview]);
 
-  const selectedRegime = useMemo((): LegacyRegimeSummary | null => {
-    if (!segQuery.data || selectedRegimeId == null) return null;
-    return segQuery.data.regimes.find((r) => r.regime_id === selectedRegimeId) ?? null;
-  }, [segQuery.data, selectedRegimeId]);
-
-  const regimeVaryingInputColumns = useMemo(() => {
-    if (!selectedRegime || !segQuery.data?.input_cols?.length || !preview) return [];
-    const allowed = new Set(selectedRegime.non_constant_input_cols);
-    return segQuery.data.input_cols
-      .filter((name) => allowed.has(name))
+  const sheetVaryingInputColumns = useMemo(() => {
+    if (!layoutInputCols.length || !preview) return [];
+    return layoutInputCols
+      .filter((name) => (columnByName.get(name)?.n_unique ?? 0) > 1)
       .map((name) => columnByName.get(name))
       .filter((c): c is ColumnInfo => c != null);
-  }, [segQuery.data, preview, columnByName, selectedRegime]);
+  }, [layoutInputCols, preview, columnByName]);
 
-  const regimeVaryingOutputColumns = useMemo(() => {
-    if (!selectedRegime || !segQuery.data?.output_cols?.length || !preview) return [];
-    const allowed = new Set(selectedRegime.non_constant_output_cols);
-    return segQuery.data.output_cols
-      .filter((name) => allowed.has(name))
+  const sheetVaryingOutputColumns = useMemo(() => {
+    if (!layoutOutputCols.length || !preview) return [];
+    return layoutOutputCols
+      .filter((name) => (columnByName.get(name)?.n_unique ?? 0) > 1)
       .map((name) => columnByName.get(name))
       .filter((c): c is ColumnInfo => c != null);
-  }, [segQuery.data, preview, columnByName, selectedRegime]);
+  }, [layoutOutputCols, preview, columnByName]);
 
-  const showRegimeColumnPanel = Boolean(
-    segQuery.data?.regimes?.length &&
-      selectedRegime &&
-      ((segQuery.data.input_cols?.length ?? 0) > 0 || (segQuery.data.output_cols?.length ?? 0) > 0),
+  const showSignalColumnPanel = Boolean(
+    layoutInputCols.length > 0 || layoutOutputCols.length > 0,
   );
-
-  const screeningCombinationsPreview = useMemo(() => {
-    const d = segQuery.data;
-    if (!d?.regimes?.length || !preview) return [];
-    const lines: string[] = [];
-    const hasPanel =
-      preview.columns.some((c) => /experiment|batch|^run$/i.test(c.name)) &&
-      preview.columns.some((c) => /time|day|hour/i.test(c.name));
-    const mgInputs = d.input_cols.filter((c) => {
-      const lo = c.toLowerCase();
-      return lo.includes("mg/l") || lo.includes("mg_l");
-    });
-    const numericInputs = d.input_cols.filter((n) => columnByName.get(n)?.is_numeric);
-    const trunc = (xs: string[], max = 5) =>
-      xs.length <= max
-        ? xs.join(", ")
-        : `${xs.slice(0, max).join(", ")} … (+${xs.length - max} more)`;
-    const numericOutputs = d.output_cols.filter((n) => columnByName.get(n)?.is_numeric);
-    const regimesForPreview =
-      selectedRegimeId != null
-        ? d.regimes.filter((r) => r.regime_id === selectedRegimeId)
-        : d.regimes;
-    for (const r of regimesForPreview) {
-      const outsForRegime = numericOutputs.filter((o) => {
-        if (!r.non_constant_output_cols.length) return true;
-        return r.non_constant_output_cols.includes(o);
-      });
-      const insForRegime = mgInputs.filter((c) => {
-        if (!r.non_constant_input_cols.length) return true;
-        return r.non_constant_input_cols.includes(c);
-      });
-      let inputSide: string[];
-      let usedNumericPool = false;
-      if (insForRegime.length >= 2) inputSide = insForRegime;
-      else if (mgInputs.length >= 2) inputSide = mgInputs;
-      else if (numericInputs.length >= 2) {
-        inputSide = numericInputs;
-        usedNumericPool = true;
-      } else continue;
-      const panelNote = hasPanel
-        ? " · panel-style fits when experiment + time columns exist"
-        : "";
-      const inputLabel = usedNumericPool ? "numeric predictors" : "mg/L predictors";
-      for (const o of outsForRegime) {
-        lines.push(
-          `Regime ${r.regime_id} → ${o} · ${inputLabel}: ${trunc(inputSide)}${panelNote}`,
-        );
-      }
-    }
-    return lines;
-  }, [segQuery.data, preview, columnByName, selectedRegimeId]);
-
-  const segmentationReady = Boolean(
-    preview &&
-      segQuery.isFetched &&
-      !segQuery.isError &&
-      (segQuery.data?.regimes?.length ?? 0) > 0 &&
-      selectedRegimeId != null,
-  );
-
-  const configureCanContinue = segmentationReady;
 
   const renderReadonlyColCard = (col: ColumnInfo) => (
     <div key={col.name} className="col-card col-card-readonly">
@@ -264,11 +175,9 @@ export function NewRun() {
     </div>
   );
 
-  const steps: Step[] = ["upload", "configure", "hypotheses"];
-
   const handleLaunch = async () => {
-    if (!preview || selectedRegimeId == null) {
-      toast.error("Select a regime on the Configure step.");
+    if (!preview) {
+      toast.error("Missing dataset.");
       return;
     }
     setHypothesesTestedCount(null);
@@ -276,7 +185,6 @@ export function NewRun() {
       const r = await screeningMutation.mutateAsync({
         filename: preview.filename,
         run_name: runName.trim() || "Untitled screening",
-        regime_id: selectedRegimeId,
         convergence_threshold: threshold,
       });
       setHypothesesTestedCount(r.hypotheses_tested);
@@ -287,29 +195,19 @@ export function NewRun() {
     }
   };
 
-  const handleViewScreeningResults = async () => {
-    if (!preview || selectedRegimeId == null) {
-      toast.error("Missing dataset or regime.");
+  const handleViewScreeningResults = () => {
+    if (!preview) {
+      toast.error("Missing dataset.");
       return;
     }
-    try {
-      const stats = await getCorpusStats();
-      if ((stats.n_papers ?? 0) < 3) {
-        toast.error("Upload at least three PDF papers to the corpus to run literature grounding.");
-        navigate("/corpus?needPapers=1");
-        return;
-      }
-      const q = new URLSearchParams({
-        filename: preview.filename,
-        regimeId: String(selectedRegimeId),
-      });
-      if (screeningRunId) q.set("runId", screeningRunId);
-      navigate(`/runs/screening?${q.toString()}`, {
-        state: { runName: runName.trim() || "Untitled screening" },
-      });
-    } catch {
-      toast.error("Could not verify corpus. Try again.");
-    }
+    const q = new URLSearchParams({
+      filename: preview.filename,
+      regimeId: "1",
+    });
+    if (screeningRunId) q.set("runId", screeningRunId);
+    navigate(`/runs/stats?${q.toString()}`, {
+      state: { runName: runName.trim() || "Untitled screening" },
+    });
   };
 
   return (
@@ -317,56 +215,154 @@ export function NewRun() {
       <div className="page-header">
         <h1 className="page-title">New Run</h1>
         <div className="page-header-right">
-          {preview && (step === "configure" || step === "hypotheses") && (
-            <button
-              type="button"
-              className="btn-secondary new-run-header-refresh"
-              onClick={() => void segQuery.refetch()}
-              disabled={segQuery.isFetching}
-            >
-              {segQuery.isFetching ? "Loading…" : "Refresh"}
-            </button>
-          )}
           <div className="step-pills">
-            {(["Upload", "Configure", "Hypotheses"] as const).map((s, i) => {
-              const cur = steps.indexOf(step);
-              return (
-                <div key={s} className={`step-pill ${i === cur ? "active" : i < cur ? "done" : ""}`}>{s}</div>
-              );
-            })}
+            {!preview ? (
+              <div className="step-pill active">Upload</div>
+            ) : (
+              STEP_PILL_LABELS_AFTER_UPLOAD.map((label, i) => {
+                const curIdx = POST_UPLOAD_STEPS.indexOf(step);
+                const onFileHub = step === "upload";
+                return (
+                  <div
+                    key={label}
+                    className={`step-pill ${
+                      onFileHub ? "" : i === curIdx ? "active" : i < curIdx ? "done" : ""
+                    }`}
+                  >
+                    {label}
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       </div>
 
-      {step === "upload" && (
+      {step === "upload" && !preview && (
         <div className="new-run-upload">
-          {preview && (
-            <div className="dataset-bar" style={{ marginBottom: 16 }}>
-              <span>{preview.filename}</span>
-              <span>{preview.n_rows.toLocaleString()} rows</span>
-              <span>{preview.n_cols} columns</span>
-              <button
-                type="button"
-                className="btn-secondary"
-                style={{ marginLeft: "auto" }}
-                onClick={() => {
-                  clearNewRunDraft();
-                  setPreview(null);
-                  setOutcome("");
-                  setFeatures([]);
-                  setHypothesesTestedCount(null);
-                  setScreeningRunId(null);
-                }}
-              >
-                Replace dataset
-              </button>
-            </div>
-          )}
           <div {...getRootProps()} className={`dropzone-large ${isDragActive ? "active" : ""}`}>
             <input {...getInputProps()} />
             <div className="dz-icon">⬆</div>
             <div className="dz-text">{uploading ? "Uploading..." : "Drop your dataset here"}</div>
             <div className="dz-hint">CSV, TSV, Excel · up to 100k rows</div>
+          </div>
+        </div>
+      )}
+
+      {step === "upload" && preview && (
+        <div className="new-run-upload new-run-file-hub">
+          <div className="dataset-bar" style={{ marginBottom: 16 }}>
+            <span>{preview.filename}</span>
+            <span>{preview.n_rows.toLocaleString()} rows</span>
+            <span>{preview.n_cols} columns</span>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                clearNewRunDraft();
+                setPreview(null);
+                setOutcome("");
+                setFeatures([]);
+                setHypothesesTestedCount(null);
+                setScreeningRunId(null);
+                setStep("upload");
+              }}
+            >
+              Clear dataset
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ marginLeft: 8 }}
+              onClick={() => setStep("configure")}
+            >
+              Back to inputs / outputs →
+            </button>
+          </div>
+          <p className="new-run-preview-caption" style={{ marginBottom: 12 }}>
+            Replace the file below, or return to the cleaned sample to continue the run.
+          </p>
+          <div {...getRootProps()} className={`dropzone-large ${isDragActive ? "active" : ""}`}>
+            <input {...getInputProps()} />
+            <div className="dz-icon">⬆</div>
+            <div className="dz-text">{uploading ? "Uploading..." : "Drop a replacement dataset"}</div>
+            <div className="dz-hint">CSV, TSV, Excel · up to 100k rows</div>
+          </div>
+        </div>
+      )}
+
+      {step === "clean_preview" && preview && (
+        <div className="new-run-review new-run-clean-preview">
+          <div className="dataset-bar" style={{ marginBottom: 12 }}>
+            <span>{preview.filename}</span>
+            <span>{preview.n_rows.toLocaleString()} rows</span>
+            <span>{preview.n_cols} columns</span>
+            <button
+              type="button"
+              className="btn-secondary"
+              style={{ marginLeft: "auto" }}
+              onClick={() => {
+                clearNewRunDraft();
+                setPreview(null);
+                setOutcome("");
+                setFeatures([]);
+                setHypothesesTestedCount(null);
+                setScreeningRunId(null);
+                setStep("upload");
+              }}
+            >
+              Replace dataset
+            </button>
+          </div>
+          <p className="new-run-preview-caption">
+            Cleaned sample (first {Math.min(100, preview.n_rows)} row{preview.n_rows === 1 ? "" : "s"}).{" "}
+            Non-constant <strong>object</strong> / <strong>string</strong> columns are encoded as{" "}
+            <strong>LabelEncoder</strong> integers (same as modeling). Numeric and constant text columns are unchanged.
+          </p>
+          <div className="new-run-preview-wrap">
+            {preview.preview_rows && preview.preview_rows.length > 0 ? (
+              <table className="dataset-sample-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    {preview.columns.map((c) => (
+                      <th key={c.name} title={c.name}>
+                        {c.name}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.preview_rows.map((row, ri) => (
+                    <tr key={ri}>
+                      <td style={{ color: "var(--text-muted)" }}>{ri + 1}</td>
+                      {preview.columns.map((c) => (
+                        <td key={c.name} title={row[c.name] ?? ""}>
+                          {row[c.name] ?? ""}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p style={{ padding: 24, color: "var(--text-muted)", margin: 0 }}>
+                No preview rows in the response. Re-upload the file to refresh, or continue if the column summary
+                above looks correct.
+              </p>
+            )}
+          </div>
+          <div className="step-actions" style={{ marginTop: 16, flexShrink: 0 }}>
+            <button type="button" className="btn-secondary" onClick={() => setStep("configure")}>
+              Back
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => { setHypothesesTestedCount(null); setStep("hypotheses"); }}
+            >
+              Continue →
+            </button>
           </div>
         </div>
       )}
@@ -379,91 +375,30 @@ export function NewRun() {
             <span>{preview.n_cols} columns</span>
           </div>
 
-          <div className="new-run-regime-block">
-            {segQuery.isLoading && <div className="seg-preview-status">Loading…</div>}
-            {segQuery.isError && (
-              <div className="seg-preview-error">
-                {(() => {
-                  const d = (segQuery.error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
-                  if (typeof d === "string") return d;
-                  if (Array.isArray(d)) return d.map((x) => (typeof x === "object" && x && "msg" in x ? String((x as { msg: string }).msg) : JSON.stringify(x))).join("; ");
-                  return "Could not load preview for this file.";
-                })()}
-              </div>
-            )}
-            {segQuery.data && (
-              <>
-                {segQuery.data.n_regimes > 0 && (
-                  <p className="seg-regime-intro">
-                    PFAS-ARIA intelligently discovers{" "}
-                    <span className="seg-regime-intro-n">{segQuery.data.n_regimes}</span>{" "}
-                    {segQuery.data.n_regimes === 1 ? "regime" : "regimes"} within the data
-                    based on common behavior
-                  </p>
-                )}
-                <div className="seg-regime-tabs" role="tablist" aria-label="Regimes">
-                  {segQuery.data.regimes.map((r) => {
-                    const active = r.regime_id === selectedRegimeId;
-                    return (
-                      <button
-                        key={r.regime_id}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        aria-label={`Regime ${r.regime_id}, ${r.n_rows.toLocaleString()} rows`}
-                        className={`seg-regime-tab${active ? " active" : ""}`}
-                        onClick={() => setSelectedRegimeId(r.regime_id)}
-                      >
-                        <span
-                          className="seg-regime-tab-cond"
-                          title={
-                            r.condition_values_sample.length > 0
-                              ? r.condition_values_sample.join(" · ")
-                              : undefined
-                          }
-                        >
-                          {r.condition_values_sample.length > 0
-                            ? r.condition_values_sample.join(" · ")
-                            : "—"}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </div>
-
           <div className="col-grid-scroll">
             <div className="regime-column-panels">
-              {showRegimeColumnPanel && (
+              {showSignalColumnPanel && (
                 <>
-                  <section className="regime-col-section" aria-labelledby="regime-inputs-heading">
-                    <h3 id="regime-inputs-heading" className="regime-col-section-title">
+                  <section className="regime-col-section" aria-labelledby="signal-inputs-heading">
+                    <h3 id="signal-inputs-heading" className="regime-col-section-title">
                       Inputs
-                      {selectedRegime && (
-                        <span className="regime-col-section-meta">
-                          {" "}
-                          · regime {selectedRegime.regime_id} · {selectedRegime.n_rows.toLocaleString()} rows
-                          {" "}
-                          · varying only
-                        </span>
-                      )}
+                      <span className="regime-col-section-meta"> · non-constant only</span>
                     </h3>
-                    {regimeVaryingInputColumns.length > 0 ? (
-                      <div className="col-grid">{regimeVaryingInputColumns.map(renderReadonlyColCard)}</div>
+                    {sheetVaryingInputColumns.length > 0 ? (
+                      <div className="col-grid">{sheetVaryingInputColumns.map(renderReadonlyColCard)}</div>
                     ) : (
-                      <p className="regime-col-section-empty">No varying inputs in this regime.</p>
+                      <p className="regime-col-section-empty">No non-constant inputs in the designated range.</p>
                     )}
                   </section>
-                  <section className="regime-col-section" aria-labelledby="regime-outputs-heading">
-                    <h3 id="regime-outputs-heading" className="regime-col-section-title">
+                  <section className="regime-col-section" aria-labelledby="signal-outputs-heading">
+                    <h3 id="signal-outputs-heading" className="regime-col-section-title">
                       Outputs
+                      <span className="regime-col-section-meta"> · non-constant only</span>
                     </h3>
-                    {regimeVaryingOutputColumns.length > 0 ? (
-                      <div className="col-grid">{regimeVaryingOutputColumns.map(renderReadonlyColCard)}</div>
+                    {sheetVaryingOutputColumns.length > 0 ? (
+                      <div className="col-grid">{sheetVaryingOutputColumns.map(renderReadonlyColCard)}</div>
                     ) : (
-                      <p className="regime-col-section-empty">No varying outputs in this regime.</p>
+                      <p className="regime-col-section-empty">No non-constant outputs in the designated range.</p>
                     )}
                   </section>
                 </>
@@ -474,11 +409,7 @@ export function NewRun() {
             <button className="btn-secondary" onClick={() => setStep("upload")}>Back</button>
             <button
               className="btn-primary"
-              onClick={() => {
-                setHypothesesTestedCount(null);
-                setStep("hypotheses");
-              }}
-              disabled={!configureCanContinue}
+              onClick={() => setStep("clean_preview")}
             >
               Continue →
             </button>
@@ -494,11 +425,8 @@ export function NewRun() {
             <span>{preview.n_cols} columns</span>
           </div>
           <p className="hyp-run-lead">
-            <strong>PFAS-ARIA</strong> screens inputs, output targets, and model families for{" "}
-            <strong>
-              {selectedRegimeId != null ? `regime ${selectedRegimeId}` : "your selected regime"}
-            </strong>{" "}
-            only — the regime you chose on Configure. The list below is limited to that slice.
+            <strong>PFAS-ARIA</strong> runs signal discovery across{" "}
+            <strong>all data slices</strong> used by the screening engine. The next step is automated hypothesis screening.
           </p>
           <div className="settings-grid">
             <div className="field field-span-2">
@@ -532,54 +460,31 @@ export function NewRun() {
             </div>
           )}
 
-          <div className="run-summary-box">
-            <p className="run-screening-plan-title">
-              Planned input → output combinations (regime {selectedRegimeId ?? "—"})
-            </p>
-            {!segmentationReady ? (
-              <p className="run-screening-dataset">Loading regime layout…</p>
-            ) : screeningCombinationsPreview.length > 0 ? (
-              <ol className="run-screening-plan">
-                {screeningCombinationsPreview.map((line, i) => (
-                  <li key={i}>{line}</li>
-                ))}
-              </ol>
-            ) : (
-              <p className="run-screening-dataset">
-                No preview lines for this regime yet. Screening still tries mg/L (or numeric)
-                predictors and numeric outputs available in the regime slice.
-              </p>
-            )}
-            <div className="run-screening-dataset">Dataset: {preview.filename}</div>
-          </div>
-
           {hypothesesTestedCount != null && !screeningMutation.isPending && (
             <div className="hyp-run-complete">
               <p>
                 Screening finished.{" "}
                 <strong>{hypothesesTestedCount.toLocaleString()}</strong> hypotheses were tested.
               </p>
-              <button type="button" className="btn-primary" onClick={() => void handleViewScreeningResults()}>
-                View run history and results
+              <button type="button" className="btn-primary" onClick={handleViewScreeningResults}>
+                View statistical results
               </button>
               <p className="hyp-run-complete-hint">
-                Opens literature-grounded screening for this regime (requires at least three corpus PDFs).
+                Shows top hypotheses ranked by R². Literature grounding is available from the results page
+                once corpus papers are uploaded.
               </p>
             </div>
           )}
 
           <div className="step-actions" style={{ flexShrink: 0 }}>
-            <button className="btn-secondary" onClick={() => setStep("configure")}>
+            <button className="btn-secondary" onClick={() => setStep("clean_preview")}>
               Back
             </button>
             <button
               className="btn-primary"
-              onClick={handleLaunch}
-              disabled={
-                screeningMutation.isPending ||
-                !segmentationReady ||
-                selectedRegimeId == null
-              }
+              type="button"
+              onClick={() => void handleLaunch()}
+              disabled={screeningMutation.isPending || !preview}
             >
               {screeningMutation.isPending ? "Working…" : "Run hypothesis screening"}
             </button>

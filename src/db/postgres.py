@@ -50,6 +50,8 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:  # type: ignore[o
 
 async def create_all_tables() -> None:
     """Create all tables. Called at startup if running without Alembic."""
+    import src.db.orm  # noqa: F401 — register all models on Base.metadata
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

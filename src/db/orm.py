@@ -110,6 +110,32 @@ class DataVersion(Base):
     )
 
 
+# ── Upload label-encoding registry (PostgreSQL) ───────────────────────────────
+
+
+class DatasetUploadEncoding(Base):
+    """
+    Persists per-column encoding maps for each user's uploaded filename.
+
+    Used to invert label codes back to raw spreadsheet values after modeling.
+    """
+
+    __tablename__ = "dataset_upload_encodings"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_sub", "filename", name="uq_dataset_upload_enc_user_file"
+        ),
+        Index("ix_dataset_upload_enc_user", "user_sub"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_sub: Mapped[str] = mapped_column(String(255))
+    filename: Mapped[str] = mapped_column(String(512))
+    encodings: Mapped[dict] = mapped_column(JSON, default=dict)
+    variable_layout: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
 # ── Corpus papers ─────────────────────────────────────────────────────────────
 
 

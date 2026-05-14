@@ -110,6 +110,44 @@ class Retriever:
         logger.debug(f"Retrieved {len(results)} chunks")
         return results
 
+    def retrieve_batch(
+        self,
+        queries: list[str],
+        top_k: int = 5,
+        min_similarity: float = 0.0,
+    ) -> list[list[RetrievedChunk]]:
+        """Embed all queries in a single model pass, serving cache hits individually.
+
+        Cache hits are served per-query; only misses go through batch embedding.
+        """
+        if not queries:
+            return []
+
+        results: list[list[RetrievedChunk] | None] = [None] * len(queries)
+        miss_indices: list[int] = []
+        miss_queries: list[str] = []
+
+        for i, q in enumerate(queries):
+            cache_key = self._cache_key(q, top_k, min_similarity)
+            cached = self._get_cache(cache_key)
+            if cached is not None:
+                results[i] = cached
+            else:
+                miss_indices.append(i)
+                miss_queries.append(q)
+
+        if miss_queries:
+            batch = self._store.search_batch(
+                miss_queries, top_k=top_k, min_similarity=min_similarity
+            )
+            for local_i, (idx, chunks) in enumerate(zip(miss_indices, batch)):
+                q = queries[idx]
+                cache_key = self._cache_key(q, top_k, min_similarity)
+                self._set_cache(cache_key, chunks)
+                results[idx] = chunks
+
+        return [r if r is not None else [] for r in results]
+
     def retrieve_for_hypothesis(
         self,
         variable_names: list[str],

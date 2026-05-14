@@ -1,8 +1,19 @@
 import type { DatasetPreview } from "@/types";
 
-export const NEW_RUN_DRAFT_KEY = "pfas-aria:newRunDraft";
+/** Bump when server preview contract changes (e.g. LabelEncoder rows) so stale session rows are dropped. */
+export const NEW_RUN_DRAFT_KEY = "pfas-aria:newRunDraft:v4-string-dtype";
 
-export type NewRunStep = "upload" | "configure" | "hypotheses";
+const LEGACY_DRAFT_KEYS = [
+  "pfas-aria:newRunDraft",
+  "pfas-aria:newRunDraft:v2-labelencode",
+  "pfas-aria:newRunDraft:v3-catcols-only",
+] as const;
+
+export type NewRunStep =
+  | "upload"
+  | "configure"
+  | "clean_preview"
+  | "hypotheses";
 
 export type NewRunDraftV1 = {
   v: 1;
@@ -15,15 +26,22 @@ export type NewRunDraftV1 = {
   screeningRunId?: string | null;
 };
 
-const STEPS: readonly NewRunStep[] = ["upload", "configure", "hypotheses"];
+const STEPS: readonly NewRunStep[] = [
+  "upload",
+  "configure",
+  "clean_preview",
+  "hypotheses",
+];
 
 function isStep(x: unknown): x is NewRunStep {
   return typeof x === "string" && (STEPS as readonly string[]).includes(x as NewRunStep);
 }
 
-/** Map legacy session drafts (step name `settings`) to `hypotheses`. */
+/** Map legacy session drafts to current step names. */
 function normalizeDraftStep(x: unknown): NewRunStep {
   if (x === "settings") return "hypotheses";
+  if (x === "review") return "clean_preview";
+  if (x === "variables") return "configure";
   if (isStep(x)) return x;
   return "configure";
 }
@@ -60,6 +78,9 @@ export function saveNewRunDraft(draft: NewRunDraftV1): void {
 export function clearNewRunDraft(): void {
   try {
     sessionStorage.removeItem(NEW_RUN_DRAFT_KEY);
+    for (const k of LEGACY_DRAFT_KEYS) {
+      sessionStorage.removeItem(k);
+    }
   } catch {
     /* ignore */
   }

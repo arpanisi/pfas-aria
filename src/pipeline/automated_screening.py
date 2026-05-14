@@ -1,5 +1,5 @@
 """
-One-shot automated hypothesis screening: regime slices × output targets ×
+One-shot automated hypothesis screening: dataset segments × output targets ×
 input subsets × model families. Counts every fit attempt as one hypothesis tested.
 """
 
@@ -17,21 +17,28 @@ from sklearn.linear_model import ElasticNet, Lasso, LinearRegression, Ridge
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from src.ingestion.legacy_pfca_regime_masks import (
-    assign_legacy_pfca_regime_masks,
-    assign_pfca_regime_masks_from_column_lists,
+from src.ingestion.dataset_screening_layout import (
+    assign_screening_layout_from_column_lists,
+    assign_screening_layout_from_legacy_column_slices,
 )
 from src.ingestion.unified_experimental_sheet import UnifiedSheetMeta
 
 logger = logging.getLogger(__name__)
 
 
-def _mg_l_input_names(input_cols: list[str]) -> list[str]:
-    return [
-        c
-        for c in input_cols
-        if "mg/l" in c.lower() or "mg_l" in c.lower().replace(" ", "")
-    ]
+def screening_numeric_input_pool(df: pd.DataFrame, input_cols: list[str]) -> list[str]:
+    """Input columns usable for screening: coercible to numeric, enough rows, >1 distinct value."""
+    pool: list[str] = []
+    for c in input_cols:
+        if c not in df.columns:
+            continue
+        s = pd.to_numeric(df[c], errors="coerce")
+        if int(s.nunique()) < 2:
+            continue
+        if int(s.notna().sum()) < 8:
+            continue
+        pool.append(c)
+    return pool
 
 
 def _numeric_output_names(df: pd.DataFrame, output_cols: list[str]) -> list[str]:
@@ -199,18 +206,18 @@ def run_automated_screening_iteration(
     """
     Run one screening pass over numeric outputs, input subsets, and model families.
 
-    If ``regime_id`` is set, only that regime's rows are used; otherwise all nonempty
-    regimes from the legacy mask assignment are screened.
+    If ``regime_id`` is set, only that segment's rows are used; otherwise every
+    nonempty segment (typically one full-dataset segment) is screened.
     """
     if unified_meta is not None:
-        res = assign_pfca_regime_masks_from_column_lists(
+        res = assign_screening_layout_from_column_lists(
             df,
             unified_meta.input_cols,
             unified_meta.output_cols,
             replace_no_in_inputs=True,
         )
     else:
-        res = assign_legacy_pfca_regime_masks(
+        res = assign_screening_layout_from_legacy_column_slices(
             df,
             input_start=input_start,
             input_end=input_end,
@@ -238,8 +245,7 @@ def run_automated_screening_iteration(
     for _rid, sub_df in regimes.items():
         if len(sub_df) < 12:
             continue
-        mg_inputs = _mg_l_input_names(res.input_cols)
-        pool = [c for c in mg_inputs if c in sub_df.columns]
+        pool = screening_numeric_input_pool(sub_df, res.input_cols)
         if len(pool) < 2:
             continue
         # Correlation on regime slice for multicollinearity screening

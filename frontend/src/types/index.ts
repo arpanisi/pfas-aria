@@ -30,14 +30,10 @@ export interface LegacySegmentationPreview {
   n_rows: number;
   n_cols: number;
   n_regimes: number;
-  pfoa_col: string;
-  pfba_col: string;
-  pfbs_col: string;
-  n_pfas_input_columns: number;
   input_cols: string[];
   output_cols: string[];
   regimes: LegacyRegimeSummary[];
-  /** Row counts for regimes 1–5 (includes zeros for empty patterns). */
+  /** Row counts for regime ids 1–5 (unused ids are zero when only segment 1 exists). */
   regime_row_counts: RegimeRowCount[];
   warnings: string[];
 }
@@ -49,6 +45,19 @@ export interface DatasetPreview {
   columns: ColumnInfo[];
   /** 0-based Excel row used as column headers; omitted for CSV/TSV */
   excel_header_row?: number | null;
+  /** From upload — same lists as segmentation preview when available */
+  input_cols?: string[];
+  output_cols?: string[];
+  /** First 100 rows after server-side normalization (column name → cell text). */
+  preview_rows?: Record<string, string>[];
+  /** Summary of mandatory cleaning / encoding applied on ingest. */
+  cleaning_notes?: string[];
+  /** Unified-layout metadata column names when detected. */
+  metadata_cols?: string[];
+  /** Column order after normalization (for verification before modeling). */
+  all_columns?: string[];
+  /** PostgreSQL id for persisted inverse label maps. */
+  label_encoding_record_id?: string | null;
 }
 
 export interface RunConfig {
@@ -157,6 +166,43 @@ export interface Citation {
   hypothesis_id?: string | null;
 }
 
+export interface ScreeningStatsRequest {
+  filename: string;
+  regime_id: number;
+  run_name?: string;
+  run_id?: string | null;
+}
+
+export interface ScreeningStatsBundle {
+  hypothesis: Hypothesis;
+  model_result: ModelResult;
+}
+
+export interface ScreeningStatsResponse {
+  run_name: string;
+  filename: string;
+  display_title: string;
+  dataset_n_rows: number;
+  dataset_n_cols: number;
+  regime_id: number;
+  regime_n_rows: number;
+  bundles: ScreeningStatsBundle[];
+  warnings: string[];
+}
+
+export interface GroundingJobStart {
+  job_id: string;
+}
+
+export interface GroundingJobProgress {
+  pct: number;
+  stage: string;
+  done: boolean;
+  eta_seconds: number | null;
+  result: ScreeningGroundedResponse | null;
+  error: string | null;
+}
+
 export interface ConvergencePoint {
   round: number;
   avg_match_score: number;
@@ -204,19 +250,3 @@ export interface WSStatusMessage {
   match_score: number;
   details: Record<string, unknown>;
 }
-
-// ── UI state types ────────────────────────────────────────────────────────────
-
-export type UploadStep = "upload" | "configure" | "running" | "results";
-
-export type RunStep =
-  | "initializing"
-  | "ingesting"
-  | "building_rag"
-  | "analyzing_data"
-  | "generating_hypotheses"
-  | "modeling"
-  | "grounding"
-  | "converged"
-  | "completed"
-  | "failed";

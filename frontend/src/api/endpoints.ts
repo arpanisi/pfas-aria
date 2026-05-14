@@ -6,6 +6,8 @@ import type {
   ConvergencePoint,
   CorpusStats,
   DatasetPreview,
+  GroundingJobProgress,
+  GroundingJobStart,
   Hypothesis,
   LegacySegmentationPreview,
   ModelResult,
@@ -14,6 +16,8 @@ import type {
   RunSummary,
   ScreeningGroundedRequest,
   ScreeningGroundedResponse,
+  ScreeningStatsRequest,
+  ScreeningStatsResponse,
 } from "@/types";
 
 // ── Pipeline ──────────────────────────────────────────────────────────────────
@@ -48,7 +52,8 @@ export const runAutomatedScreeningIteration = async (
 ): Promise<AutomatedScreeningIterationResponse> => {
   const { data } = await apiClient.post(
     "/pipeline/automated-screening-iteration",
-    body
+    body,
+    { timeout: 120_000 }
   );
   return data;
 };
@@ -57,6 +62,30 @@ export const postScreeningGrounded = async (
   body: ScreeningGroundedRequest
 ): Promise<ScreeningGroundedResponse> => {
   const { data } = await apiClient.post("/pipeline/screening-grounded", body, {
+    // Sync screening + many RAG calls + LLM rationales can exceed 2 minutes on real datasets.
+    timeout: 600_000,
+  });
+  return data;
+};
+
+export const startScreeningGrounded = async (
+  body: ScreeningGroundedRequest
+): Promise<GroundingJobStart> => {
+  const { data } = await apiClient.post("/pipeline/screening-grounded/start", body, {
+    timeout: 15_000,
+  });
+  return data;
+};
+
+export const getGroundingProgress = async (jobId: string): Promise<GroundingJobProgress> => {
+  const { data } = await apiClient.get(`/pipeline/screening-grounded/progress/${encodeURIComponent(jobId)}`);
+  return data;
+};
+
+export const postScreeningStats = async (
+  body: ScreeningStatsRequest
+): Promise<ScreeningStatsResponse> => {
+  const { data } = await apiClient.post("/pipeline/screening-stats", body, {
     timeout: 120_000,
   });
   return data;

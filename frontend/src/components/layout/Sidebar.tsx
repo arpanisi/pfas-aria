@@ -78,15 +78,18 @@ export function Sidebar() {
 
       <div className="sb-sep" />
 
-      {NAV.map(({ to, label }) => (
-        <div
-          key={to}
-          className={`nav-item ${location.pathname.startsWith(to) ? "active" : ""}`}
-          onClick={() => navigate(to)}
-        >
-          {label}
-        </div>
-      ))}
+      {NAV.map(({ to, label }) => {
+        const active =
+          to === "/runs"
+            ? location.pathname === "/runs" ||
+              (location.pathname.startsWith("/runs/") && location.pathname !== "/runs/screening")
+            : location.pathname.startsWith(to);
+        return (
+          <div key={to} className={`nav-item ${active ? "active" : ""}`} onClick={() => navigate(to)}>
+            {label}
+          </div>
+        );
+      })}
 
       <div className="sb-footer">
         <div className="sb-account">
