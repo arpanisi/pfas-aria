@@ -26,6 +26,8 @@ services:
         sync: false
       - key: CLERK_PUBLISHABLE_KEY
         sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
 
   - type: worker
     name: pfas-aria-worker
@@ -49,6 +51,8 @@ services:
       - key: REDIS_URL
         sync: false
       - key: CLERK_SECRET_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
         sync: false
 
   - type: web
