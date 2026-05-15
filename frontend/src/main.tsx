@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useLayoutEffect } from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import {
@@ -39,7 +39,7 @@ function ThemeInit() {
 
 function AuthSetup() {
   const { getToken } = useAuth();
-  useEffect(() => {
+  useLayoutEffect(() => {
     setAuthToken(() => getToken());
   }, [getToken]);
   return null;

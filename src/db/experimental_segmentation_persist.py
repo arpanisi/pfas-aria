@@ -267,7 +267,7 @@ async def persist_legacy_result_iter(
         len(regime_frames),
         source_filename,
     )
-    return batch.id
+    return str(batch.id)
 
 
 async def persist_legacy_results_iter_indexed(

@@ -107,34 +107,6 @@ def agent() -> DataIntelligenceAgent:
 
 
 class TestDataIntelligenceAgent:
-    def test_kmeans_detection_returns_labels(self, agent, sample_bundle):
-        df = sample_bundle.df
-        numeric_cols = ["uv_intensity", "ph", "temperature_c"]
-        labels = agent._kmeans_detection(df, sample_bundle, numeric_cols)
-        assert len(labels) == len(df)
-        assert all(lbl.startswith("regime_") for lbl in labels)
-
-    def test_kmeans_detects_two_clusters(self, agent, sample_bundle):
-        """With clearly separated data, k-means should find 2 clusters."""
-        df = sample_bundle.df
-        numeric_cols = ["uv_intensity", "temperature_c"]
-        labels = agent._kmeans_detection(df, sample_bundle, numeric_cols)
-        assert len(set(labels)) >= 2
-
-    def test_hdbscan_detection_returns_labels(self, agent, sample_bundle):
-        df = sample_bundle.df
-        numeric_cols = ["uv_intensity", "ph", "temperature_c"]
-        labels = agent._hdbscan_detection(df, sample_bundle, numeric_cols)
-        assert len(labels) == len(df)
-
-    def test_build_regimes_correct_count(self, agent, sample_bundle):
-        df = sample_bundle.df.copy()
-        df["regime"] = ["regime_0"] * 30 + ["regime_1"] * 30
-        regimes = agent._build_regimes(df, sample_bundle, ["regime_0", "regime_1"])
-        assert len(regimes) == 2
-        assert regimes[0].size == 30
-        assert regimes[1].size == 30
-
     def test_panel_structure_detected(self, agent, sample_bundle):
         panel = agent._discover_panel_structure(sample_bundle)
         assert panel.is_panel is True
@@ -150,9 +122,7 @@ class TestDataIntelligenceAgent:
         assert panel.recommended_model == "ols"
 
     def test_feature_profiling_numeric(self, agent, sample_bundle):
-        labeled_df = sample_bundle.df.copy()
-        labeled_df["regime"] = "regime_0"
-        profiles = agent._profile_features(sample_bundle, labeled_df)
+        profiles = agent._profile_features(sample_bundle)
         numeric_profiles = [p for p in profiles if p.is_numeric]
         assert len(numeric_profiles) > 0
         for p in numeric_profiles:
@@ -160,17 +130,13 @@ class TestDataIntelligenceAgent:
             assert p.skewness is not None
 
     def test_feature_profiles_have_correlations(self, agent, sample_bundle):
-        labeled_df = sample_bundle.df.copy()
-        labeled_df["regime"] = "regime_0"
-        profiles = agent._profile_features(sample_bundle, labeled_df)
+        profiles = agent._profile_features(sample_bundle)
         numeric_profiles = [p for p in profiles if p.is_numeric]
         corrs = [p.correlation_with_outcome for p in numeric_profiles]
         assert any(c is not None for c in corrs)
 
     def test_rank_features_returns_sorted_list(self, agent, sample_bundle):
-        labeled_df = sample_bundle.df.copy()
-        labeled_df["regime"] = "regime_0"
-        profiles = agent._profile_features(sample_bundle, labeled_df)
+        profiles = agent._profile_features(sample_bundle)
         ranked = agent._rank_features(profiles)
         assert isinstance(ranked, list)
         assert len(ranked) > 0
@@ -201,8 +167,6 @@ class TestDataIntelligenceAgent:
             report = agent.run(sample_bundle)
 
         assert isinstance(report, DataIntelligenceReport)
-        assert report.n_regimes >= 1
         assert report.panel_structure is not None
         assert len(report.feature_profiles) > 0
-        assert report.labeled_df is not None
-        assert "regime" in report.labeled_df.columns
+        assert len(report.top_features) > 0

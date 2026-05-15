@@ -191,10 +191,7 @@ class GroundingAgent:
         coeff = model_result.coefficients.get(top_var, 0.0)
         direction = "increases" if coeff > 0 else "decreases"
 
-        return (
-            f"{top_var} {direction} {model_result.outcome_variable} "
-            f"in PFAS photochemical degradation"
-        )
+        return f"{top_var} {direction} {model_result.outcome_variable}"
 
     def _get_domain_context(self) -> str:
         try:
@@ -202,7 +199,7 @@ class GroundingAgent:
 
             return get_settings().domain.context
         except Exception:
-            return "PFAS photochemical degradation"
+            return ""
 
     def _build_structured_results(
         self,

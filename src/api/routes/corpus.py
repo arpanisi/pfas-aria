@@ -6,6 +6,7 @@ Upload PDFs, index them immediately into MongoDB/PostgreSQL, and expose corpus s
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 import uuid
@@ -21,6 +22,7 @@ from src.api.deps import CurrentUser, DBSession
 from src.db.mongodb import get_mongo_db
 from src.db.orm import Paper
 from src.etl.corpus.processor import CorpusProcessor
+from src.rag.pipeline import clear_rag_cache
 from src.utils.logging import get_logger
 from src.utils.paths import CORPUS_DIR
 
@@ -75,6 +77,63 @@ def _sha256_bytes(content: bytes) -> str:
 def _chunk_content_hash(paper_hash: str, chunk_index: int, text: str) -> str:
     payload = f"{paper_hash}:{chunk_index}:{text}".encode()
     return hashlib.sha256(payload).hexdigest()
+
+
+class DomainContextOut(BaseModel):
+    domain_context: str
+    n_papers: int
+    corpus_fingerprint: str
+
+
+# Process-level cache — survives repeated calls until corpus changes.
+_domain_cache: dict[str, str] = {"fingerprint": "", "context": ""}
+
+
+def _corpus_fingerprint(paper_ids: list[str]) -> str:
+    payload = "|".join(sorted(paper_ids)).encode()
+    return hashlib.md5(payload).hexdigest()
+
+
+@router.post("/domain-context", response_model=DomainContextOut)
+async def infer_domain_context(
+    payload: dict,
+    user: CurrentUser,
+    db: DBSession,
+) -> DomainContextOut:
+    """Infer a one-line domain description from dataset columns + corpus paper titles."""
+    col_names: list[str] = payload.get("col_names", [])
+    result = await db.execute(select(Paper).order_by(Paper.parsed_at.desc()))
+    papers = result.scalars().all()
+
+    fingerprint = _corpus_fingerprint([p.id for p in papers])
+
+    if len(papers) < 3:
+        _domain_cache["fingerprint"] = ""
+        _domain_cache["content"] = ""
+        return DomainContextOut(
+            domain_context="", n_papers=len(papers), corpus_fingerprint=fingerprint
+        )
+
+    if fingerprint == _domain_cache.get("fingerprint") and _domain_cache.get("context"):
+        return DomainContextOut(
+            domain_context=_domain_cache["context"],
+            n_papers=len(papers),
+            corpus_fingerprint=fingerprint,
+        )
+
+    paper_titles = [p.title for p in papers if p.title]
+
+    def _infer() -> str:
+        from src.utils.domain_context import infer_domain_context
+
+        return infer_domain_context(col_names, paper_titles)
+
+    context = await asyncio.to_thread(_infer)
+    _domain_cache["fingerprint"] = fingerprint
+    _domain_cache["context"] = context
+    return DomainContextOut(
+        domain_context=context, n_papers=len(papers), corpus_fingerprint=fingerprint
+    )
 
 
 @router.get("/stats", response_model=CorpusStats)
@@ -264,6 +323,7 @@ async def upload_paper(
         f"({processed.n_chunks} chunks, {processed.n_tokens} tokens)"
     )
 
+    clear_rag_cache()
     return UploadPaperOut(
         filename=paper.filename,
         size_bytes=len(content),
@@ -281,17 +341,14 @@ async def upload_paper(
 async def clear_corpus(user: CurrentUser, db: DBSession) -> DeleteCorpusOut:
     result = await db.execute(select(Paper))
     papers = result.scalars().all()
-    paper_ids = [p.id for p in papers]
 
     mongo_db = get_mongo_db()
 
-    deleted_chunks = 0
-    if paper_ids:
-        chunks_result = await mongo_db["chunks"].delete_many(
-            {"paper_id": {"$in": paper_ids}}
-        )
-        deleted_chunks = int(chunks_result.deleted_count)
-        await mongo_db["papers"].delete_many({"paper_id": {"$in": paper_ids}})
+    # Wipe entire MongoDB collections — not just PostgreSQL-tracked papers,
+    # so orphaned chunks (uploaded but never recorded in PostgreSQL) are also removed.
+    chunks_result = await mongo_db["chunks"].delete_many({})
+    deleted_chunks = int(chunks_result.deleted_count)
+    await mongo_db["papers"].delete_many({})
 
     await db.execute(delete(Paper))
 
@@ -302,6 +359,7 @@ async def clear_corpus(user: CurrentUser, db: DBSession) -> DeleteCorpusOut:
             except OSError:
                 logger.warning(f"Could not delete local corpus PDF: {path}")
 
+    clear_rag_cache()
     logger.info(f"Cleared corpus: {len(papers)} papers, {deleted_chunks} chunks")
 
     return DeleteCorpusOut(
@@ -330,5 +388,6 @@ async def delete_paper(paper_id: str, user: CurrentUser, db: DBSession) -> None:
         pdf_path.unlink()
 
     await db.delete(paper)
+    clear_rag_cache()
 
     logger.info(f"Deleted paper from corpus: {paper.filename}")

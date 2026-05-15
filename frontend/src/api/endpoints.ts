@@ -11,7 +11,6 @@ import type {
   Hypothesis,
   LegacySegmentationPreview,
   ModelResult,
-  RunConfig,
   RunStatus,
   RunSummary,
   ScreeningGroundedRequest,
@@ -40,13 +39,6 @@ export const getLegacySegmentationPreview = async (
   return data;
 };
 
-export const startRun = async (
-  config: RunConfig
-): Promise<{ run_id: string; status: string }> => {
-  const { data } = await apiClient.post("/pipeline/run", config);
-  return data;
-};
-
 export const runAutomatedScreeningIteration = async (
   body: AutomatedScreeningIterationRequest
 ): Promise<AutomatedScreeningIterationResponse> => {
@@ -71,9 +63,7 @@ export const postScreeningGrounded = async (
 export const startScreeningGrounded = async (
   body: ScreeningGroundedRequest
 ): Promise<GroundingJobStart> => {
-  const { data } = await apiClient.post("/pipeline/screening-grounded/start", body, {
-    timeout: 15_000,
-  });
+  const { data } = await apiClient.post("/pipeline/screening-grounded/start", body);
   return data;
 };
 
@@ -155,12 +145,17 @@ export const getCorpusStats = async (): Promise<CorpusStats> => {
 };
 
 export const uploadPaper = async (
-  file: File
+  file: File,
+  onProgress?: (pct: number) => void,
 ): Promise<{ filename: string; status: string }> => {
   const formData = new FormData();
   formData.append("file", file);
   const { data } = await apiClient.post("/corpus/upload", formData, {
     headers: { "Content-Type": "multipart/form-data" },
+    timeout: 0,
+    onUploadProgress: (e) => {
+      if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100));
+    },
   });
   return data;
 };
@@ -175,5 +170,14 @@ export async function clearCorpus(): Promise<{
   deleted_chunks: number;
 }> {
   const { data } = await apiClient.delete("/corpus");
+  return data;
+}
+
+export async function inferDomainContext(
+  colNames: string[]
+): Promise<{ domain_context: string; n_papers: number; corpus_fingerprint: string }> {
+  const { data } = await apiClient.post("/corpus/domain-context", {
+    col_names: colNames,
+  });
   return data;
 }

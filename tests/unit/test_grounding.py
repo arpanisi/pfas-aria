@@ -14,6 +14,33 @@ from src.grounding.scorer import (
 )
 from src.grounding.semantic_scholar import S2Paper, SemanticScholarClient
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _minimal_atom_xml(
+    title: str = "PFAS Degradation Study",
+    abstract: str = "Cold atmospheric plasma drives fluoride release from PFAS compounds.",
+    arxiv_id: str = "2401.00001",
+) -> str:
+    """Build minimal valid arXiv Atom feed with one entry (or zero if abstract is empty)."""
+    if not abstract:
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<feed xmlns="http://www.w3.org/2005/Atom"></feed>'
+        )
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/{arxiv_id}</id>
+    <title>{title}</title>
+    <summary>{abstract}</summary>
+    <published>2024-01-15T00:00:00Z</published>
+    <author><name>Test Author</name></author>
+    <category term="physics.chem-ph"/>
+  </entry>
+</feed>"""
+
+
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
@@ -70,44 +97,37 @@ def _make_validation_report() -> MagicMock:
 
 
 class TestArxivClient:
-    def test_extract_keywords_removes_stopwords(self):
-        with patch("src.grounding.arxiv_client.get_settings"):
-            client = ArxivClient()
-        text = "UV intensity significantly increases the degradation rate of PFAS"
-        keywords = client._extract_keywords(text)
-        assert "the" not in keywords
-        assert "significantly" not in keywords
-        assert "intensity" in keywords or "degradation" in keywords
+    def test_search_returns_arxiv_papers(self):
+        client = ArxivClient()
+        with patch("src.grounding.arxiv_client.requests.get") as mock_get:
+            mock_get.return_value.raise_for_status = lambda: None
+            mock_get.return_value.text = _minimal_atom_xml()
+            results = client.search("PFAS plasma degradation")
+        assert len(results) == 1
+        assert isinstance(results[0], ArxivPaper)
+        assert results[0].title == "PFAS Degradation Study"
 
-    def test_build_queries_returns_list(self):
-        with patch("src.grounding.arxiv_client.get_settings"):
-            client = ArxivClient()
-        queries = client._build_queries(
-            finding="UV drives degradation",
-            significant_variables=["uv_intensity", "ph"],
-            domain_context="PFAS photochemical degradation",
-        )
-        assert isinstance(queries, list)
-        assert len(queries) <= 3
-        assert len(queries) >= 1
-
-    def test_build_queries_includes_domain(self):
-        with patch("src.grounding.arxiv_client.get_settings"):
-            client = ArxivClient()
-        queries = client._build_queries(
-            finding="UV drives degradation",
-            significant_variables=["uv_intensity"],
-            domain_context="PFAS photochemical degradation",
-        )
-        assert any("PFAS" in q for q in queries)
-
-    @patch("src.grounding.arxiv_client.arxiv")
-    def test_search_returns_empty_on_failure(self, mock_arxiv):
-        with patch("src.grounding.arxiv_client.get_settings"):
-            client = ArxivClient()
-        mock_arxiv.Search.side_effect = Exception("API error")
-        results = client.search("PFAS degradation")
+    def test_search_returns_empty_on_network_error(self):
+        client = ArxivClient()
+        with patch("src.grounding.arxiv_client.requests.get") as mock_get:
+            mock_get.side_effect = Exception("connection refused")
+            results = client.search("PFAS degradation")
         assert results == []
+
+    def test_parse_extracts_all_fields(self):
+        client = ArxivClient()
+        papers = client._parse(_minimal_atom_xml())
+        assert len(papers) == 1
+        p = papers[0]
+        assert p.title == "PFAS Degradation Study"
+        assert "fluoride" in p.abstract
+        assert p.arxiv_id == "2401.00001"
+        assert p.published == "2024-01-15"
+
+    def test_parse_skips_entries_without_abstract(self):
+        client = ArxivClient()
+        papers = client._parse(_minimal_atom_xml(abstract=""))
+        assert papers == []
 
 
 # ── SemanticScholarClient Tests ───────────────────────────────────────────────

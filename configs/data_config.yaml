@@ -27,16 +27,3 @@ corpus:
   # Chunk size for RAG splitting (in tokens)
   chunk_size: 512
   chunk_overlap: 64
-
-domain:
-  # Plain-language description of your research domain
-  # The agent uses this to prime its reasoning
-  context: "PFAS photochemical degradation kinetics and mechanisms"
-
-  # Keywords to bias arXiv and Semantic Scholar searches
-  keywords:
-    - "PFAS degradation"
-    - "per- and polyfluoroalkyl substances"
-    - "photochemical treatment"
-    - "fluorine bond cleavage"
-    - "advanced oxidation"

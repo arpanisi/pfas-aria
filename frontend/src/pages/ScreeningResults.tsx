@@ -19,17 +19,26 @@ type GroundingCard = Citation & {
 };
 
 const SOURCE_LABEL: Record<string, string> = {
-  corpus: "Uploaded",
-  uploaded: "Uploaded",
+  corpus: "Corpus",
+  uploaded: "Corpus",
   arxiv: "arXiv",
   semantic_scholar: "Semantic Scholar",
   s2: "Semantic Scholar",
   crossref: "Crossref",
+  openalex: "OpenAlex",
+  europe_pmc: "Europe PMC",
 };
 
 function sigmoidScore(value: number | undefined) {
   if (value === undefined || Number.isNaN(value)) return "—";
   return `${(value * 100).toFixed(0)}%`;
+}
+
+function toTitleCase(str: string) {
+  return str.replace(
+    /\w\S*/g,
+    txt => txt.charAt(0).toUpperCase() + txt.slice(1).toLowerCase()
+  );
 }
 
 function significanceLabel(p?: number) {
@@ -79,9 +88,11 @@ function buildEffects(model: ModelResult | null): EffectView[] {
 
 function normalizeSource(source: string) {
   const src = source?.toLowerCase?.() ?? "unknown";
-  if (src.includes("semantic")) return "semantic_scholar";
+  if (src.includes("semantic") || src === "s2") return "semantic_scholar";
   if (src.includes("arxiv")) return "arxiv";
   if (src.includes("crossref")) return "crossref";
+  if (src.includes("openalex")) return "openalex";
+  if (src.includes("europe") || src.includes("epmc")) return "europe_pmc";
   if (src.includes("upload") || src.includes("corpus") || src.includes("paper")) return "corpus";
   return src;
 }
@@ -99,18 +110,29 @@ function reasonTags(citation: Citation, selected: Hypothesis | null) {
 }
 
 function buildGrounding(citations: Citation[], selected: Hypothesis | null): GroundingCard[] {
-  return [...citations]
-    .sort((a, b) => (b.similarity_score ?? 0) - (a.similarity_score ?? 0))
-    .slice(0, 8)
-    .map((citation) => {
-      const normalizedSource = normalizeSource(citation.source);
-      return {
-        ...citation,
-        normalizedSource,
-        scorePct: Math.round((citation.similarity_score ?? 0) * 100),
-        reasonTags: reasonTags(citation, selected),
-      };
-    });
+  // Keep the best result per source (corpus, arxiv, semantic_scholar).
+  const bySource = new Map<string, Citation>();
+  for (const c of citations) {
+    const src = normalizeSource(c.source);
+    const existing = bySource.get(src);
+    if (!existing || c.similarity_score > existing.similarity_score) {
+      bySource.set(src, c);
+    }
+  }
+  const ORDER = ["corpus", "arxiv", "semantic_scholar", "openalex", "europe_pmc", "crossref"];
+  const ordered = ORDER.flatMap((src) => {
+    const c = bySource.get(src);
+    return c ? [c] : [];
+  });
+  return ordered.map((citation) => {
+    const normalizedSource = normalizeSource(citation.source);
+    return {
+      ...citation,
+      normalizedSource,
+      scorePct: Math.round((citation.similarity_score ?? 0) * 100),
+      reasonTags: reasonTags(citation, selected),
+    };
+  });
 }
 
 function topValidation(model: ModelResult | null, matchScore: number) {
@@ -272,16 +294,18 @@ export function ScreeningResults() {
       <div className="results-main">
         <section className="hero-card">
           <div>
-            <div className="eyebrow">Hypothesis → panel test → result → mechanistic interpretation → ranked literature support</div>
-            <h1>{d?.display_title ?? "Literature Grounding of Discovered Signals"}</h1>
+            <h1>{toTitleCase(d?.display_title ?? "Literature Grounding of Discovered Signals")}</h1>
             <p>
-              Results are limited to <strong>regime {d?.regime_id ?? regimeId}</strong> only — the regime you chose on
-              Configure. Hypotheses below passed automated screening and were ranked by fit and resemblance to your
-              uploaded corpus.
+              {d?.next_steps ?? (
+                <>
+                  Results are limited to <strong>regime {d?.regime_id ?? regimeId}</strong> only. Hypotheses below
+                  passed automated screening and were ranked by fit and resemblance to your uploaded corpus.
+                </>
+              )}
             </p>
             {d?.persisted_to_run_id && (
               <p style={{ marginTop: 12, fontSize: "13px", color: "var(--text-muted)" }}>
-                Grounded hypotheses saved to PostgreSQL for run <strong>#{d.persisted_to_run_id}</strong>.
+                Literature-Grounded hypotheses saved for run <strong>#{d.persisted_to_run_id}</strong>.
               </p>
             )}
             {!runIdParam && query.data && (
@@ -300,7 +324,7 @@ export function ScreeningResults() {
             <div className="metric-card">
               <span>Hypotheses rendered</span>
               <strong>{hypotheses.length}</strong>
-              <small>Regime {d?.regime_id ?? regimeId} · n = {d?.regime_n_rows?.toLocaleString() ?? "—"}</small>
+              <small>Ranked by Literature Relevance</small>
             </div>
             <div className="metric-card">
               <span>Best panel fit</span>
@@ -310,7 +334,7 @@ export function ScreeningResults() {
             <div className="metric-card accent-metric">
               <span>Grounding corpus</span>
               <strong>{d?.n_corpus_papers ?? "—"}</strong>
-              <small>uploaded papers (min. 3)</small>
+              <small>uploaded papers (minimum 3)</small>
             </div>
           </div>
         </section>
@@ -319,12 +343,11 @@ export function ScreeningResults() {
           {["ingest", "hypothesize", "model", "validate", "ground"].map((step) => (
             <div
               key={step}
-              className={`workflow-step ${["hypothesize", "model", "validate", "ground"].includes(step) ? "active" : ""}`}
+              className="workflow-step active"
             >
               <span>{step}</span>
             </div>
           ))}
-          <div className="status-badge badge-completed">static</div>
         </section>
 
         {d?.warnings?.length ? (
@@ -353,8 +376,11 @@ export function ScreeningResults() {
                     <em>{d?.regime_n_rows?.toLocaleString() ?? "—"} rows</em>
                   </div>
                   <p>
-                    Screening and literature ranking use only this regime slice from{" "}
-                    <strong>{d?.filename}</strong>.
+                    {d?.system_summary ?? (
+                      <>
+                        Screening and literature listed for the Hypotheses below.
+                      </>
+                    )}
                   </p>
                 </div>
               </div>
@@ -487,6 +513,9 @@ export function ScreeningResults() {
                     <strong>{item.scorePct}%</strong>
                   </div>
                   <h3>{item.title}</h3>
+                  {item.abstract_snippet && (
+                    <p className="grounding-snippet">{item.abstract_snippet}</p>
+                  )}
                   <div className="reason-row">
                     {item.reasonTags.map((tag) => (
                       <span key={tag}>{tag}</span>

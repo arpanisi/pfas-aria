@@ -1,10 +1,11 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { UserButton, useUser } from "@clerk/clerk-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "@/store/theme";
 import { useDropzone } from "react-dropzone";
 import toast from "react-hot-toast";
-import { uploadDataset, uploadPaper } from "@/api/endpoints";
+import { deleteRun, uploadDataset, uploadPaper } from "@/api/endpoints";
+import { clearNewRunDraft, DRAFT_CHANGED_EVENT, loadNewRunDraft } from "@/lib/newRunDraft";
 
 const NAV = [
   { to: "/upload", label: "▶ Run pipeline" },
@@ -17,6 +18,18 @@ export function Sidebar() {
   const { user } = useUser();
   const navigate = useNavigate();
   const location = useLocation();
+
+  const [draftPreview, setDraftPreview] = useState(() => loadNewRunDraft()?.preview ?? null);
+
+  useEffect(() => {
+    const refresh = () => setDraftPreview(loadNewRunDraft()?.preview ?? null);
+    window.addEventListener(DRAFT_CHANGED_EVENT, refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener(DRAFT_CHANGED_EVENT, refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
 
   const accountLine =
     user?.primaryEmailAddress?.emailAddress ??
@@ -65,6 +78,29 @@ export function Sidebar() {
         <div className="uz-text">Upload dataset</div>
         <div className="uz-hint">CSV, Excel · up to 100k rows</div>
       </div>
+
+      {draftPreview && (
+        <div className="sb-dataset-pill">
+          <div className="sb-dataset-info" onClick={() => navigate("/upload")}>
+            <span className="sb-dataset-name" title={draftPreview.filename}>{draftPreview.filename}</span>
+            <span className="sb-dataset-meta">{draftPreview.n_rows.toLocaleString()} rows · {draftPreview.n_cols} cols</span>
+          </div>
+          <button
+            className="sb-dataset-delete"
+            title="Remove dataset"
+            onClick={async () => {
+              const draft = loadNewRunDraft();
+              if (draft?.screeningRunId) {
+                try { await deleteRun(draft.screeningRunId); } catch { /* ignore */ }
+              }
+              clearNewRunDraft();
+              navigate("/upload", { replace: true, state: {} });
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <div className="sb-sep" />
 

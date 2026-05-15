@@ -32,10 +32,24 @@ function openRun(navigate: ReturnType<typeof useNavigate>, r: RunStatus) {
       regimeId: String(regimeId),
       runId: r.run_id,
     });
-    navigate(`/runs/stats?${q.toString()}`, { state: { runName: r.run_name } });
+    if (r.screening_phase === "grounding_completed") {
+      navigate(`/runs/screening?${q.toString()}`, { state: { runName: r.run_name } });
+    } else {
+      navigate(`/runs/stats?${q.toString()}`, { state: { runName: r.run_name } });
+    }
     return;
   }
   navigate(`/runs/${r.run_id}`);
+}
+
+function ScreeningPhaseBadge({ phase }: { phase?: string | null }) {
+  if (phase === "grounding_completed") {
+    return <span className="phase-badge grounding">Literature grounded</span>;
+  }
+  if (phase === "stats_completed") {
+    return <span className="phase-badge stats">Statistical testing completed</span>;
+  }
+  return null;
 }
 
 export function RunHistory() {
@@ -107,6 +121,9 @@ export function RunHistory() {
                   </span>
                   <span className="run-card-name">{r.run_name}</span>
                   <span className="run-card-id">#{r.run_id}</span>
+                  {r.run_kind === "screening" && (
+                    <ScreeningPhaseBadge phase={r.screening_phase} />
+                  )}
                 </div>
                 <div className="run-card-meta">
                   <span title="When recorded">{formatWhen(r.created_at)}</span>

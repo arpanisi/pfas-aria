@@ -25,7 +25,7 @@ def _get_jwks_url() -> str:
     """
     Derive the JWKS URL from the Clerk publishable key.
     Publishable key format: pk_test_<base64-encoded-frontend-api>$
-    Decoding gives the frontend API domain e.g. super-penguin-94.clerk.accounts.dev
+    Decoding gives the frontend API domain
     """
     if not CLERK_PUBLISHABLE_KEY:
         raise ValueError("CLERK_PUBLISHABLE_KEY is not set")
@@ -54,7 +54,9 @@ def _get_jwks_client() -> PyJWKClient:
     global _jwks_client
     if _jwks_client is None:
         jwks_url = _get_jwks_url()
-        _jwks_client = PyJWKClient(jwks_url)
+        # lifespan=3600: cache JWKS for 1 hour — prevents refetch mid-request during
+        # long-running jobs (grounding can take 3-5 min; default 300s TTL causes spurious 401s).
+        _jwks_client = PyJWKClient(jwks_url, lifespan=3600)
     return _jwks_client
 
 
@@ -86,7 +88,7 @@ async def verify_clerk_token(
             options={"verify_exp": True},
         )
 
-        return payload
+        return dict(payload)
 
     except jwt.ExpiredSignatureError:
         raise HTTPException(
@@ -101,10 +103,14 @@ async def verify_clerk_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
     except Exception as e:
+        # Network errors during JWKS refresh should not invalidate a valid session.
+        # Log and raise 503 so the client retries rather than treating it as auth failure.
+        from src.utils.logging import get_logger
+
+        get_logger(__name__).warning("JWKS verification error (non-auth): {}", e)
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Token verification failed: {e}",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Auth service temporarily unavailable — please retry",
         )
 
 

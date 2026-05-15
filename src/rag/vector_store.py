@@ -1,9 +1,9 @@
 """
-Vector store backed by MongoDB chunk documents.
+Vector store backed by MongoDB Atlas chunk documents.
 
-Embeddings are written to each chunk's ``embedding`` field (same schema as
-corpus upload). Semantic search uses cosine similarity against all embedded
-chunks (suitable for modest corpora).
+Embeddings are written to each chunk's ``embedding`` field during ingest.
+Semantic search delegates to the Atlas ``$vectorSearch`` aggregation stage —
+no in-memory index is built and no full-collection fetch is needed.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-import numpy as np
 from pymongo import MongoClient, UpdateOne
 
 from src.ingestion.corpus_loader import Document
@@ -55,13 +54,13 @@ class VectorStore:
                 "only 'mongodb' is supported."
             )
         self._collection_name = cfg.collection_name
+        self._vector_search_index = cfg.atlas_vector_index
         self._client: MongoClient[Any] = MongoClient(
             MONGO_URL, serverSelectionTimeoutMS=5000
         )
         self._coll = self._client[MONGO_DB][self._collection_name]
         self._embedder = get_embedder()
         self._model_name = self._embedder.model_name
-        self._rows_cache: list[dict] | None = None  # loaded once per instance
 
         n = self.count()
         logger.info(
@@ -125,9 +124,7 @@ class VectorStore:
             if ops:
                 self._coll.bulk_write(ops, ordered=False)
                 updated += len(ops)
-        if updated:
-            self._rows_cache = None  # invalidate so next search sees fresh embeddings
-        logger.info("Wrote embeddings for %s chunks", updated)
+        logger.info("Wrote embeddings for {} chunks", updated)
         return updated
 
     def build(
@@ -136,61 +133,43 @@ class VectorStore:
         """Ensure Mongo chunks carry embeddings. Legacy ``documents`` is ignored."""
         self.ensure_all_chunks_embedded(force_rebuild=force_rebuild)
 
-    def _load_rows(self) -> list[dict]:
-        """Load all embedded chunk rows once and cache for this store instance."""
-        if self._rows_cache is not None:
-            return self._rows_cache
-        cursor = self._coll.find(
-            {"embedding": {"$ne": None}},
-            projection={
-                "text": 1,
-                "filename": 1,
-                "title": 1,
-                "chunk_index": 1,
-                "metadata": 1,
-                "embedding": 1,
-            },
-        )
-        rows = [
-            r
-            for r in cursor
-            if r.get("embedding") is not None
-            and isinstance(r["embedding"], list)
-            and len(r["embedding"]) > 0
-        ]
-        self._rows_cache = rows
-        return rows
-
-    def invalidate_cache(self) -> None:
-        self._rows_cache = None
-
     def search(
         self,
         query: str,
         top_k: int = 5,
         min_similarity: float = 0.0,
     ) -> list[RetrievedChunk]:
-        rows = self._load_rows()
-        if not rows:
+        if not self.is_built():
             raise VectorStoreError(
                 "Vector store is empty. Upload PDFs and ensure Mongo chunks are embedded."
             )
-
-        q = self._embedder.embed_one(query).astype(np.float64)
-        q = q / (float(np.linalg.norm(q)) + 1e-12)
-        matrix = np.stack([np.asarray(r["embedding"], dtype=np.float64) for r in rows])
-        norms = np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-12
-        matrix = matrix / norms
-        sims = (matrix @ q).astype(np.float64)
-        order = np.argsort(-sims)
-        k = min(top_k, len(rows))
+        q_vec: list[float] = self._embedder.embed_one(query).astype(float).tolist()
+        pipeline = [
+            {
+                "$vectorSearch": {
+                    "index": self._vector_search_index,
+                    "path": "embedding",
+                    "queryVector": q_vec,
+                    "numCandidates": max(top_k * 10, 100),
+                    "limit": top_k,
+                }
+            },
+            {
+                "$project": {
+                    "text": 1,
+                    "filename": 1,
+                    "title": 1,
+                    "chunk_index": 1,
+                    "metadata": 1,
+                    "score": {"$meta": "vectorSearchScore"},
+                }
+            },
+        ]
         chunks: list[RetrievedChunk] = []
-        for idx in order[:k]:
-            i = int(idx)
-            sim = float(sims[i])
+        for r in self._coll.aggregate(pipeline):
+            sim = float(r.get("score", 0.0))
             if sim < min_similarity:
                 continue
-            r = rows[i]
             raw_meta = r.get("metadata")
             meta: dict[str, Any] = raw_meta if isinstance(raw_meta, dict) else {}
             fname = r.get("filename") or meta.get("source_file", "unknown")
@@ -206,7 +185,7 @@ class VectorStore:
                     metadata=meta,
                 )
             )
-        return sorted(chunks, key=lambda c: c.similarity_score, reverse=True)
+        return chunks
 
     def search_batch(
         self,
@@ -214,50 +193,9 @@ class VectorStore:
         top_k: int = 5,
         min_similarity: float = 0.0,
     ) -> list[list[RetrievedChunk]]:
-        """Embed all queries in one pass and return per-query result lists."""
-        if not queries:
-            return []
-        rows = self._load_rows()
-        if not rows:
-            raise VectorStoreError(
-                "Vector store is empty. Upload PDFs and ensure Mongo chunks are embedded."
-            )
-        q_mat = self._embedder.embed(queries).astype(np.float64)
-        # rows already normalized by ensure_all_chunks_embedded; normalise again to be safe
-        e_mat = np.stack([np.asarray(r["embedding"], dtype=np.float64) for r in rows])
-        norms = np.linalg.norm(e_mat, axis=1, keepdims=True) + 1e-12
-        e_mat = e_mat / norms
-        sim_mat = (e_mat @ q_mat.T).astype(np.float64)  # (n_chunks, n_queries)
-
-        results: list[list[RetrievedChunk]] = []
-        for qi in range(len(queries)):
-            sims = sim_mat[:, qi]
-            order = np.argsort(-sims)
-            k = min(top_k, len(rows))
-            chunks: list[RetrievedChunk] = []
-            for idx in order[:k]:
-                i = int(idx)
-                sim = float(sims[i])
-                if sim < min_similarity:
-                    continue
-                r = rows[i]
-                raw_meta = r.get("metadata")
-                meta: dict[str, Any] = raw_meta if isinstance(raw_meta, dict) else {}
-                fname = r.get("filename") or meta.get("source_file", "unknown")
-                title = r.get("title") or meta.get("title", "unknown")
-                chunks.append(
-                    RetrievedChunk(
-                        doc_id=str(r["_id"]),
-                        source_file=str(fname),
-                        title=str(title),
-                        text=str(r.get("text", "")),
-                        chunk_index=int(r.get("chunk_index", 0)),
-                        similarity_score=sim,
-                        metadata=meta,
-                    )
-                )
-            results.append(chunks)
-        return results
+        return [
+            self.search(q, top_k=top_k, min_similarity=min_similarity) for q in queries
+        ]
 
     def search_many(
         self,

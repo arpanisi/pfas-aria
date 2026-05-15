@@ -132,6 +132,7 @@ export const EXAMPLE_CITATIONS: Citation[] = [
     url: null,
     year: "2019",
     similarity_score: 0.92,
+    abstract_snippet: null,
     variable: "gas_used",
   },
   {
@@ -142,6 +143,7 @@ export const EXAMPLE_CITATIONS: Citation[] = [
     url: null,
     year: "2024",
     similarity_score: 0.87,
+    abstract_snippet: null,
     variable: "intermediate pathway",
   },
   {
@@ -152,6 +154,7 @@ export const EXAMPLE_CITATIONS: Citation[] = [
     url: null,
     year: "2023",
     similarity_score: 0.84,
+    abstract_snippet: null,
     variable: "time",
   },
   {
@@ -162,6 +165,7 @@ export const EXAMPLE_CITATIONS: Citation[] = [
     url: null,
     year: "2023",
     similarity_score: 0.78,
+    abstract_snippet: null,
     variable: "radical pathway",
   },
 ];

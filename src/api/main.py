@@ -28,6 +28,7 @@ logger = get_logger(__name__)
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+AUTO_MIGRATE = os.getenv("AUTO_MIGRATE", "true").lower() in ("1", "true", "yes")
 
 
 @asynccontextmanager
@@ -37,15 +38,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ensure_dirs()
     logger.info(f"PFAS-ARIA API starting — {ENVIRONMENT}")
 
-    # Ensure DB tables exist
-    try:
-        from src.db.postgres import create_all_tables, create_materialized_views
+    # Ensure DB tables exist (gated by AUTO_MIGRATE; disable in prod if using Alembic)
+    if AUTO_MIGRATE:
+        try:
+            from src.db.postgres import create_all_tables, create_materialized_views
 
-        await create_all_tables()
-        await create_materialized_views()
-        logger.info("PostgreSQL tables and materialized views ready")
-    except Exception as e:
-        logger.warning(f"DB setup warning: {e}")
+            await create_all_tables()
+            await create_materialized_views()
+            logger.info("PostgreSQL tables and materialized views ready")
+        except Exception as e:
+            logger.warning(f"DB setup warning: {e}")
 
     # Ensure MongoDB indexes
     try:
