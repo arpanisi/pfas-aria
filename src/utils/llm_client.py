@@ -24,8 +24,13 @@ def chat_completion(
     max_tokens: int | None = None,
     temperature: float | None = None,
     timeout: int | None = None,
+    use_chat_model: bool = False,
 ) -> str:
-    """Run a chat completion and return the assistant message text."""
+    """Run a chat completion and return the assistant message text.
+
+    use_chat_model=True selects llm.chat_model (short-form tasks like one-line rewrites).
+    use_chat_model=False (default) selects llm.model (reasoning-heavy tasks).
+    """
     llm = get_settings().llm
     max_t = max_tokens if max_tokens is not None else llm.max_tokens
     temp = temperature if temperature is not None else llm.temperature
@@ -34,7 +39,8 @@ def chat_completion(
     provider = (llm.provider or "openrouter").lower().strip()
     if provider == "openrouter":
         return _openrouter_chat(
-            messages, max_tokens=max_t, temperature=temp, timeout=to
+            messages, max_tokens=max_t, temperature=temp, timeout=to,
+            use_chat_model=use_chat_model,
         )
     if provider == "ollama":
         return _ollama_chat(messages, max_tokens=max_t, temperature=temp, timeout=to)
@@ -49,6 +55,7 @@ def _openrouter_chat(
     max_tokens: int,
     temperature: float,
     timeout: int,
+    use_chat_model: bool = False,
 ) -> str:
     api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not api_key:
@@ -71,38 +78,52 @@ def _openrouter_chat(
     if site_name:
         headers["X-Title"] = site_name
 
-    payload: dict[str, Any] = {
-        "model": llm.model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-    }
-    response = requests.post(url, json=payload, headers=headers, timeout=timeout)
-    response.raise_for_status()
-    data = response.json()
-    try:
-        msg = data["choices"][0]["message"]
-        content = msg.get("content") or ""
-        if not content:
-            # Some reasoning models return null content; the thinking text lives in
-            # msg["reasoning"] (plain string) or msg["reasoning_details"][*]["text"].
-            content = msg.get("reasoning") or ""
-        if not content:
-            for block in msg.get("reasoning_details") or []:
-                if isinstance(block, dict):
-                    text = block.get("text") or block.get("thinking") or ""
-                    if text:
-                        content = str(text)
-                        break
-        if not content:
-            raise LLMError(f"Unexpected OpenRouter response shape: {repr(data)[:500]}")
-        return content.strip()
-    except LLMError:
-        raise
-    except (KeyError, IndexError, TypeError) as e:
-        raise LLMError(
-            f"Unexpected OpenRouter response shape: {repr(data)[:500]}"
-        ) from e
+    primary = (llm.chat_model or llm.model) if use_chat_model else llm.model
+    models_to_try = [primary, *llm.fallback_models]
+    last_error: Exception = LLMError("No models configured")
+
+    # Cap per-model HTTP timeout so slow/hung models don't block the fallback chain.
+    # With 16+ fallbacks, each model should either respond or fail within 20s.
+    # The caller's `timeout` budget applies to the whole call, not each individual attempt.
+    per_model_timeout = min(timeout, 20)
+
+    for model_id in models_to_try:
+        try:
+            payload: dict[str, Any] = {
+                "model": model_id,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+            response = requests.post(url, json=payload, headers=headers, timeout=per_model_timeout)
+            response.raise_for_status()
+            data = response.json()
+            msg = data["choices"][0]["message"]
+            content = msg.get("content") or ""
+            if not content:
+                # Some reasoning models return null content; the thinking text lives in
+                # msg["reasoning"] (plain string) or msg["reasoning_details"][*]["text"].
+                content = msg.get("reasoning") or ""
+            if not content:
+                for block in msg.get("reasoning_details") or []:
+                    if isinstance(block, dict):
+                        text = block.get("text") or block.get("thinking") or ""
+                        if text:
+                            content = str(text)
+                            break
+            if not content:
+                raise LLMError(f"Unexpected OpenRouter response shape: {repr(data)[:500]}")
+            if model_id != llm.model:
+                logger.info("OpenRouter fallback succeeded with model {}", model_id)
+            return content.strip()
+        except LLMError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.warning("OpenRouter model {} failed: {}", model_id, e)
+            last_error = e
+            continue
+
+    raise LLMError(f"All OpenRouter models failed. Last error: {last_error}") from last_error
 
 
 def _ollama_chat(

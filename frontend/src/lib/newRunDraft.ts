@@ -48,7 +48,7 @@ function normalizeDraftStep(x: unknown): NewRunStep {
 
 export function loadNewRunDraft(): NewRunDraftV1 | null {
   try {
-    const raw = sessionStorage.getItem(NEW_RUN_DRAFT_KEY);
+    const raw = localStorage.getItem(NEW_RUN_DRAFT_KEY);
     if (!raw) return null;
     const d = JSON.parse(raw) as Partial<NewRunDraftV1 & { step?: string }>;
     if (!d?.preview?.filename || !Array.isArray(d.preview.columns)) return null;
@@ -67,20 +67,27 @@ export function loadNewRunDraft(): NewRunDraftV1 | null {
   }
 }
 
+export const DRAFT_CHANGED_EVENT = "pfas-draft-changed";
+
 export function saveNewRunDraft(draft: NewRunDraftV1): void {
   try {
-    sessionStorage.setItem(NEW_RUN_DRAFT_KEY, JSON.stringify(draft));
+    localStorage.setItem(NEW_RUN_DRAFT_KEY, JSON.stringify(draft));
+    window.dispatchEvent(new Event(DRAFT_CHANGED_EVENT));
   } catch {
     /* quota or private mode */
   }
 }
 
+const DOMAIN_CACHE_KEY = "aria:domainContext";
+
 export function clearNewRunDraft(): void {
   try {
-    sessionStorage.removeItem(NEW_RUN_DRAFT_KEY);
+    localStorage.removeItem(NEW_RUN_DRAFT_KEY);
+    localStorage.removeItem(DOMAIN_CACHE_KEY);
     for (const k of LEGACY_DRAFT_KEYS) {
-      sessionStorage.removeItem(k);
+      localStorage.removeItem(k);
     }
+    window.dispatchEvent(new Event(DRAFT_CHANGED_EVENT));
   } catch {
     /* ignore */
   }

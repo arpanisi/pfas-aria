@@ -179,3 +179,25 @@ async def invalidate_db_cache(run_id: str) -> None:
         keys.append(key)
     if keys:
         await r.delete(*keys)
+
+
+# ── Grounding job state ───────────────────────────────────────────────────────
+
+GROUNDING_JOB_TTL = 60 * 60 * 2  # 2 hours — survives a slow LLM enrichment pass
+
+
+async def set_grounding_job(job_id: str, fields: dict) -> None:
+    """Upsert grounding job state. Merges `fields` into the existing dict."""
+    r = get_redis()
+    key = f"grounding_job:{job_id}"
+    existing_raw = await r.get(key)
+    existing: dict = json.loads(existing_raw) if existing_raw else {}
+    existing.update(fields)
+    await r.setex(key, GROUNDING_JOB_TTL, json.dumps(existing))
+
+
+async def get_grounding_job(job_id: str) -> dict | None:
+    """Return grounding job state or None if not found / expired."""
+    r = get_redis()
+    data = await r.get(f"grounding_job:{job_id}")
+    return json.loads(data) if data else None

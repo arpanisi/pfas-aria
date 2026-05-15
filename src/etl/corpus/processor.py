@@ -10,6 +10,7 @@ Handles corpora from 50 to 10,000+ papers efficiently.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -51,6 +52,16 @@ class ProcessingResult:
     mongo_ids: list[str] = field(default_factory=list)
     success: bool = True
     error: str = ""
+
+
+_REF_HEADER = re.compile(
+    r'\n(References|Bibliography|REFERENCES|BIBLIOGRAPHY|Works\s+Cited)\s*\n',
+    re.IGNORECASE,
+)
+_ET_AL = re.compile(r'\bet\s+al\.', re.IGNORECASE)
+_BRACKET_NUM = re.compile(r'\[\d+\]')
+_AUTHOR_YEAR = re.compile(r'\([A-Z][a-z]+(?:\s+et\s+al\.)?,\s*\d{4}\)')
+_DOI = re.compile(r'(doi:|https?://doi\.org/)', re.IGNORECASE)
 
 
 class CorpusProcessor:
@@ -96,7 +107,14 @@ class CorpusProcessor:
         try:
             raw_text = self._extract_text(pdf_path)
             title = self._extract_title(raw_text, pdf_path.stem)
-            chunks = self._split_into_chunks(raw_text)
+            truncated_text, ref_found = self._truncate_at_references(raw_text)
+            if ref_found:
+                removed_pct = (len(raw_text) - len(truncated_text)) / len(raw_text)
+                logger.info(f"  {pdf_path.name}: truncated references section ({removed_pct:.0%} removed)")
+            raw_chunks = self._split_into_chunks(truncated_text)
+            chunks, n_dropped = self._filter_reference_chunks(raw_chunks)
+            if n_dropped:
+                logger.info(f"  {pdf_path.name}: dropped {n_dropped} reference-like chunks")
             paper_hash = self._hash_file(pdf_path)
 
             processed_chunks = []
@@ -213,6 +231,46 @@ class CorpusProcessor:
             return title[:200] if len(title) > 10 else fallback
         return fallback
 
+    @staticmethod
+    def _truncate_at_references(text: str) -> tuple[str, bool]:
+        m = _REF_HEADER.search(text)
+        if m:
+            return text[:m.start()], True
+        return text, False
+
+    @staticmethod
+    def _filter_reference_chunks(chunks: list[str]) -> tuple[list[str], int]:
+        kept, dropped = [], 0
+        for chunk in chunks:
+            lines = [ln for ln in chunk.splitlines() if ln.strip()]
+            if not lines:
+                kept.append(chunk)
+                continue
+
+            et_al_count  = len(_ET_AL.findall(chunk))
+            bracket_nums = _BRACKET_NUM.findall(chunk)
+            author_year  = len(_AUTHOR_YEAR.findall(chunk))
+            doi_count    = len(_DOI.findall(chunk))
+            short_lines  = sum(1 for ln in lines if len(ln.strip()) < 80)
+            short_line_ratio = short_lines / len(lines)
+
+            nums = [int(m[1:-1]) for m in bracket_nums]
+            sequential = len(nums) >= 3 and all(
+                nums[i + 1] - nums[i] == 1 for i in range(len(nums) - 1)
+            )
+
+            is_ref = (
+                et_al_count > 6
+                or (sequential and len(bracket_nums) >= 5)
+                or doi_count >= 3
+                or (short_line_ratio > 0.60 and (et_al_count > 3 or author_year > 3 or doi_count > 1))
+            )
+            if is_ref:
+                dropped += 1
+            else:
+                kept.append(chunk)
+        return kept, dropped
+
     def _split_into_chunks(self, text: str) -> list[str]:
         chars_per_chunk = self.chunk_size * 4
         overlap_chars = self.chunk_overlap * 4
@@ -221,16 +279,20 @@ class CorpusProcessor:
         text_len = len(text)
 
         while start < text_len:
-            end = min(start + chars_per_chunk, text_len)
-            if end < text_len:
-                for boundary in [". ", ".\n", "\n\n"]:
-                    pos = text.rfind(boundary, start, end)
+            hard_end = min(start + chars_per_chunk, text_len)
+            end = hard_end
+            if hard_end < text_len:
+                min_boundary = start + int(chars_per_chunk * 0.70)
+                for boundary in ["\n\n", ".\n", ". "]:
+                    pos = text.rfind(boundary, min_boundary, hard_end)
                     if pos != -1:
                         end = pos + len(boundary)
                         break
             chunk = text[start:end].strip()
             if chunk:
                 chunks.append(chunk)
+            if end >= text_len:
+                break
             start = max(start + 1, end - overlap_chars)
 
         return chunks

@@ -156,14 +156,14 @@ def _fit_and_count(
         try:
             est.fit(x_mat, y_vec)
         except Exception as e:  # noqa: BLE001
-            logger.debug("Screening fit failed: %s", e)
+            logger.debug("Screening fit failed: {}", e)
 
     if panel_x is not None and panel_y is not None and len(panel_y) >= 8:
         n += 1
         try:
             Ridge(alpha=1.0, random_state=0).fit(panel_x, panel_y)
         except Exception as e:  # noqa: BLE001
-            logger.debug("Panel ridge fit failed: %s", e)
+            logger.debug("Panel ridge fit failed: {}", e)
 
     return n
 

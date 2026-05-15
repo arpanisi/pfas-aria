@@ -13,6 +13,18 @@ from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Module-level cache: avoids re-parsing PDFs on every request when Mongo is current.
+# Cleared by force_rebuild=True (e.g. after a new PDF is uploaded to the corpus).
+_cached_retriever: Retriever | None = None
+_cached_corpus_bundle: CorpusBundle | None = None
+
+
+def clear_rag_cache() -> None:
+    """Invalidate the module-level retriever cache (call after corpus uploads)."""
+    global _cached_retriever, _cached_corpus_bundle
+    _cached_retriever = None
+    _cached_corpus_bundle = None
+
 
 class RAGPipeline:
     """
@@ -27,11 +39,21 @@ class RAGPipeline:
 
     def build(self, force_rebuild: bool = False) -> Retriever:
         """
-        1. Open Mongo-backed vector store
-        2. If already embedded and not forcing rebuild, reuse
-        3. Otherwise embed all chunks missing vectors (upload path writes text only)
-        4. Return Retriever
+        1. Return cached retriever immediately if Mongo embeddings are current.
+        2. Otherwise open Mongo-backed vector store, embed any missing chunks, cache result.
+        force_rebuild=True clears the cache (use after uploading new corpus PDFs).
         """
+        global _cached_retriever, _cached_corpus_bundle
+
+        if force_rebuild:
+            clear_rag_cache()
+
+        if _cached_retriever is not None:
+            self._retriever = _cached_retriever
+            self._corpus_bundle = _cached_corpus_bundle
+            logger.info("=== RAG Pipeline: Using cached retriever ===")
+            return _cached_retriever
+
         logger.info("=== RAG Pipeline: Starting ===")
 
         self._vector_store = VectorStore()
@@ -39,7 +61,6 @@ class RAGPipeline:
         logger.info("Warming up embedding model...")
         get_embedder()
 
-        # Incremental: only chunks missing ``embedding`` or wrong model; optional full rebuild
         logger.info("Syncing Mongo chunk embeddings...")
         self._vector_store.build(force_rebuild=force_rebuild)
 
@@ -55,6 +76,9 @@ class RAGPipeline:
             "=== RAG Pipeline: Ready — %s embedded chunks ===",
             self._vector_store.count(),
         )
+
+        _cached_retriever = self._retriever
+        _cached_corpus_bundle = self._corpus_bundle
         return self._retriever
 
     def _warm_corpus_bundle_for_summary(self) -> None:
@@ -62,7 +86,7 @@ class RAGPipeline:
         try:
             self._corpus_bundle = CorpusLoader().load()
         except Exception as e:  # noqa: BLE001
-            logger.debug("CorpusLoader skipped for summary: %s", e)
+            logger.debug("CorpusLoader skipped for summary: {}", e)
             self._corpus_bundle = None
 
     @property

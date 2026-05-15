@@ -1,7 +1,7 @@
 """
 Hypothesis Agent.
 Generates structured, ranked scientific hypotheses from:
-  - Data Intelligence report (regimes, feature profiles, top features)
+  - Data Intelligence report (feature profiles, top features)
   - RAG context (relevant chunks from the 50 papers)
   - Previous round results (for loop refinement)
 
@@ -70,11 +70,9 @@ class HypothesisAgent(BaseAgent):
     for the Modeling Agent to execute.
     """
 
-    SYSTEM_PROMPT = """You are an expert environmental chemist and statistician
-specializing in PFAS (per- and polyfluoroalkyl substances) degradation research.
-You generate precise, testable statistical hypotheses grounded in physical chemistry.
+    SYSTEM_PROMPT = """You are an expert scientist and statistician who generates precise, testable statistical hypotheses from experimental data.
 You think carefully about which variables to include, which interactions matter,
-and which model families are appropriate for panel data.
+and which model families are appropriate for the data structure.
 Always respond with valid JSON only — no preamble, no markdown."""
 
     def run(
@@ -175,11 +173,6 @@ Always respond with valid JSON only — no preamble, no markdown."""
             elif not fp.is_numeric:
                 feature_lines.append(f"  {fp.name}: categorical")
 
-        # Regime summary
-        regime_lines = []
-        for r in report.regimes:
-            regime_lines.append(f"  {r.label} (n={r.size}): {r.description[:100]}")
-
         # Previous results summary (for refinement rounds)
         prev_summary = ""
         if round_number > 1 and previous_results:
@@ -195,9 +188,6 @@ DOMAIN: {cfg.domain.context}
 
 DATASET OVERVIEW:
 {report.schema_summary}
-
-DETECTED REGIMES ({report.n_regimes}):
-{chr(10).join(regime_lines)}
 
 PANEL STRUCTURE:
 - Type: {report.panel_structure.recommended_model}
@@ -276,9 +266,7 @@ Return ONLY the JSON array. No other text."""
                 h = self._parse_single(
                     item=item,
                     round_number=round_number,
-                    outcome=report.labeled_df.columns[0]
-                    if report.labeled_df is not None
-                    else "outcome",
+                    outcome="outcome",
                     rag_titles=rag_titles,
                     valid_columns=valid_columns,
                 )

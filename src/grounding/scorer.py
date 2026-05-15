@@ -286,7 +286,7 @@ class GroundingScorer:
         magnitude = abs(coefficient)
         return (
             f"{variable} {direction} {outcome} "
-            f"(coefficient={magnitude:.4f}) in PFAS degradation"
+            f"(coefficient={magnitude:.4f})"
         )
 
     def _build_summary(

@@ -7,6 +7,7 @@ Free tier available — optional API key for higher rate limits.
 from __future__ import annotations
 
 import os
+import threading
 import time
 from dataclasses import dataclass
 
@@ -18,6 +19,21 @@ logger = get_logger(__name__)
 
 BASE_URL = "https://api.semanticscholar.org/graph/v1"
 RATE_LIMIT_SECONDS = 1.0
+
+# Process-wide rate limiter — unauthenticated S2 limit is ~100 req/5 min.
+# Enforcing 1.5s between calls keeps us safely under.
+_s2_lock = threading.Lock()
+_s2_last_call: float = 0.0
+_S2_MIN_INTERVAL = 1.5
+
+
+def _s2_rate_limit() -> None:
+    global _s2_last_call
+    with _s2_lock:
+        gap = _S2_MIN_INTERVAL - (time.monotonic() - _s2_last_call)
+        if gap > 0:
+            time.sleep(gap)
+        _s2_last_call = time.monotonic()
 
 
 # ── Output schema ─────────────────────────────────────────────────────────────
@@ -59,6 +75,7 @@ class SemanticScholarClient:
     def search(self, query: str, max_results: int = 10) -> list[S2Paper]:
         """Search Semantic Scholar for papers matching query."""
         logger.debug(f"Semantic Scholar search: '{query[:80]}'")
+        _s2_rate_limit()
         try:
             response = requests.get(
                 f"{BASE_URL}/paper/search",
@@ -72,9 +89,20 @@ class SemanticScholarClient:
             )
 
             if response.status_code == 429:
-                logger.warning("Semantic Scholar rate limited — waiting 10s")
-                time.sleep(10)
-                return []
+                for wait in (5, 10, 15):
+                    logger.warning(f"Semantic Scholar rate limited — retrying in {wait}s")
+                    time.sleep(wait)
+                    response = requests.get(
+                        f"{BASE_URL}/paper/search",
+                        params={"query": query, "limit": str(max_results), "fields": self.FIELDS},
+                        headers=self._headers,
+                        timeout=30,
+                    )
+                    if response.status_code != 429:
+                        break
+                if response.status_code != 200:
+                    logger.warning(f"Semantic Scholar returned {response.status_code} after retries")
+                    return []
 
             if response.status_code != 200:
                 logger.warning(f"Semantic Scholar returned {response.status_code}")

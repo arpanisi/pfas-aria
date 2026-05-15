@@ -60,19 +60,6 @@ export interface DatasetPreview {
   label_encoding_record_id?: string | null;
 }
 
-export interface RunConfig {
-  run_name: string;
-  filename: string;
-  outcome_variable: string;
-  feature_columns: string[];
-  exclude_columns: string[];
-  max_rounds: number;
-  convergence_threshold: number;
-  hypotheses_per_round: number;
-  strict_validation: boolean;
-  regime_id?: number | null;
-}
-
 export interface AutomatedScreeningIterationRequest {
   filename: string;
   run_name: string;
@@ -111,6 +98,8 @@ export interface ScreeningGroundedResponse {
   bundles: ScreeningBundle[];
   warnings: string[];
   persisted_to_run_id?: string | null;
+  system_summary?: string | null;
+  next_steps?: string | null;
 }
 
 export interface RunStatus {
@@ -126,6 +115,7 @@ export interface RunStatus {
   hypotheses_tested: number | null;
   dataset_filename: string | null;
   created_at?: string | null;
+  screening_phase?: string | null;
 }
 
 export interface Hypothesis {
@@ -161,6 +151,7 @@ export interface Citation {
   url: string | null;
   year: string | null;
   similarity_score: number;
+  abstract_snippet: string | null;
   variable: string | null;
   /** When set, citation was retrieved for a specific screening hypothesis (e.g. H1). */
   hypothesis_id?: string | null;

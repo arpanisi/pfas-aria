@@ -69,6 +69,8 @@ class LLMConfig(BaseModel):
     # openrouter | ollama | runpod  (OpenRouter default; API key from OPENROUTER_API_KEY)
     provider: str = "openrouter"
     model: str = "openai/gpt-4o-mini"
+    chat_model: str | None = None  # short-form tasks; falls back to model if unset
+    fallback_models: list[str] = Field(default_factory=list)
     runpod_endpoint: str | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_site_url: str | None = None
@@ -88,6 +90,7 @@ class VectorStoreConfig(BaseModel):
 
     provider: str = "mongodb"
     collection_name: str = "chunks"
+    atlas_vector_index: str = "vector_index"
 
 
 class MLflowConfig(BaseModel):

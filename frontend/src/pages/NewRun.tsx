@@ -3,8 +3,10 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useDropzone } from "react-dropzone";
 import toast from "react-hot-toast";
 import { useAutomatedScreeningIteration, useUploadDataset } from "@/hooks/usePipeline";
+import { inferDomainContext } from "@/api/endpoints";
 import {
   clearNewRunDraft,
+  DRAFT_CHANGED_EVENT,
   loadNewRunDraft,
   saveNewRunDraft,
 } from "@/lib/newRunDraft";
@@ -12,6 +14,7 @@ import type { ColumnInfo, DatasetPreview } from "@/types";
 
 /** Fallback column index slice when the file has no unified layout (CSV / plain Excel). */
 const LEGACY_INPUT_START = 2;
+const DOMAIN_CACHE_KEY = "aria:domainContext";
 const LEGACY_INPUT_END = 37;
 const LEGACY_OUTPUT_START = 37;
 
@@ -38,6 +41,10 @@ export function NewRun() {
   const [hypothesesTestedCount, setHypothesesTestedCount] = useState<number | null>(null);
   const [screeningRunId, setScreeningRunId] = useState<string | null>(null);
 
+  const [domainContext, setDomainContext] = useState<string | null>(null);
+  const [domainLoading, setDomainLoading] = useState(false);
+  const [nCorpusPapers, setNCorpusPapers] = useState<number | null>(null);
+
   const [progressMsgIdx, setProgressMsgIdx] = useState(0);
   const progressMessages = [
     "Scanning inputs, outputs, and column variability…",
@@ -56,6 +63,26 @@ export function NewRun() {
   }, [screeningMutation.isPending, progressMessages.length]);
 
   const hydrateOnceRef = useRef(false);
+
+  // Reset to upload screen when the sidebar × button clears the draft.
+  useEffect(() => {
+    const onDraftChanged = () => {
+      if (loadNewRunDraft() !== null) return;
+      setPreview(null);
+      setStep("upload");
+      setOutcome("");
+      setFeatures([]);
+      setRunName("");
+      setThreshold(0.75);
+      setHypothesesTestedCount(null);
+      setScreeningRunId(null);
+      setDomainContext(null);
+      setNCorpusPapers(null);
+      hydrateOnceRef.current = false;
+    };
+    window.addEventListener(DRAFT_CHANGED_EVENT, onDraftChanged);
+    return () => window.removeEventListener(DRAFT_CHANGED_EVENT, onDraftChanged);
+  }, []);
 
   const applyPreviewFromUpload = useCallback((p: DatasetPreview) => {
     setPreview(p);
@@ -98,6 +125,55 @@ export function NewRun() {
       screeningRunId,
     });
   }, [preview, step, outcome, features, runName, threshold, screeningRunId]);
+
+  useEffect(() => {
+    if (step !== "hypotheses" || !preview) return;
+
+    // Show cached domain immediately to avoid loading flash.
+    type DomainCache = { domain_context: string; corpus_fingerprint: string; n_papers: number };
+    let cachedFingerprint: string | null = null;
+    try {
+      const raw = localStorage.getItem(DOMAIN_CACHE_KEY);
+      if (raw) {
+        const cached = JSON.parse(raw) as DomainCache;
+        if (cached.domain_context && cached.corpus_fingerprint) {
+          setDomainContext(cached.domain_context);
+          setNCorpusPapers(cached.n_papers);
+          cachedFingerprint = cached.corpus_fingerprint;
+        }
+      }
+    } catch { /* ignore */ }
+
+    // Always call API to verify fingerprint (LLM is skipped server-side if cached).
+    if (!cachedFingerprint) setDomainLoading(true);
+    const colNames = preview.columns.map((c: ColumnInfo) => c.name);
+    inferDomainContext(colNames)
+      .then((res) => {
+        setNCorpusPapers(res.n_papers);
+        if (res.n_papers < 3) {
+          setDomainContext(null);
+          try { localStorage.removeItem(DOMAIN_CACHE_KEY); } catch { /* ignore */ }
+          return;
+        }
+        if (res.corpus_fingerprint !== cachedFingerprint) {
+          setDomainContext(res.domain_context || null);
+        }
+        if (res.domain_context) {
+          try {
+            localStorage.setItem(
+              DOMAIN_CACHE_KEY,
+              JSON.stringify({
+                domain_context: res.domain_context,
+                corpus_fingerprint: res.corpus_fingerprint,
+                n_papers: res.n_papers,
+              })
+            );
+          } catch { /* quota */ }
+        }
+      })
+      .catch(() => { if (!cachedFingerprint) setDomainContext(null); })
+      .finally(() => setDomainLoading(false));
+  }, [step, preview]);
 
   const onDrop = useCallback(async (files: File[]) => {
     if (!files[0]) return;
@@ -316,8 +392,6 @@ export function NewRun() {
           </div>
           <p className="new-run-preview-caption">
             Cleaned sample (first {Math.min(100, preview.n_rows)} row{preview.n_rows === 1 ? "" : "s"}).{" "}
-            Non-constant <strong>object</strong> / <strong>string</strong> columns are encoded as{" "}
-            <strong>LabelEncoder</strong> integers (same as modeling). Numeric and constant text columns are unchanged.
           </p>
           <div className="new-run-preview-wrap">
             {preview.preview_rows && preview.preview_rows.length > 0 ? (
@@ -425,9 +499,27 @@ export function NewRun() {
             <span>{preview.n_cols} columns</span>
           </div>
           <p className="hyp-run-lead">
-            <strong>PFAS-ARIA</strong> runs signal discovery across{" "}
-            <strong>all data slices</strong> used by the screening engine. The next step is automated hypothesis screening.
+            Signal discovery across <strong>all data slices</strong>. The next step is automated hypothesis screening.
           </p>
+
+          {domainLoading && (
+            <div className="domain-context-bar domain-context-loading">
+              Inferring domain context…
+            </div>
+          )}
+          {!domainLoading && domainContext && (
+            <div className="domain-context-bar">
+              <span className="domain-context-label">Identified domain</span>
+              <span className="domain-context-value">{domainContext}</span>
+            </div>
+          )}
+          {!domainLoading && nCorpusPapers !== null && nCorpusPapers < 3 && (
+            <div className="domain-context-bar domain-context-warn">
+              {nCorpusPapers === 0
+                ? "No corpus papers uploaded. Upload at least 3 papers before running."
+                : `Only ${nCorpusPapers} paper${nCorpusPapers === 1 ? "" : "s"} uploaded. Upload at least 3 for reliable literature grounding.`}
+            </div>
+          )}
           <div className="settings-grid">
             <div className="field field-span-2">
               <label>Run name</label>
@@ -484,7 +576,7 @@ export function NewRun() {
               className="btn-primary"
               type="button"
               onClick={() => void handleLaunch()}
-              disabled={screeningMutation.isPending || !preview}
+              disabled={screeningMutation.isPending || !preview || domainLoading || !domainContext || (nCorpusPapers !== null && nCorpusPapers < 3)}
             >
               {screeningMutation.isPending ? "Working…" : "Run hypothesis screening"}
             </button>

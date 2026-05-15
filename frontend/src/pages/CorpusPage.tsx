@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
@@ -9,15 +9,28 @@ export function CorpusPage() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const needPapers = searchParams.get("needPapers") === "1";
-  const { data: stats, refetch } = useQuery({ queryKey: ["corpus"], queryFn: getCorpusStats });
+  const { data: stats } = useQuery({ queryKey: ["corpus"], queryFn: getCorpusStats });
+  const [uploading, setUploading] = useState<Record<string, number>>({});
 
   const onDrop = useCallback(async (files: File[]) => {
+    const initial: Record<string, number> = {};
+    files.forEach((f) => { initial[f.name] = 0; });
+    setUploading(initial);
+
     for (const f of files) {
-      try { const result = await uploadPaper(f); toast.success(`${f.name}: ${result.status}`); }
-      catch { toast.error(`Failed: ${f.name}`); }
+      try {
+        const result = await uploadPaper(f, (pct) =>
+          setUploading((prev) => ({ ...prev, [f.name]: pct }))
+        );
+        toast.success(`${f.name}: ${result.status}`);
+        await queryClient.invalidateQueries({ queryKey: ["corpus"] });
+      } catch {
+        toast.error(`Failed to upload: ${f.name}`);
+      } finally {
+        setUploading((prev) => { const next = { ...prev }; delete next[f.name]; return next; });
+      }
     }
-    refetch();
-  }, [refetch]);
+  }, [queryClient]);
 
   const onDeletePaper = async (paperId: string) => {
     try {
@@ -34,13 +47,11 @@ export function CorpusPage() {
     const confirmed = window.confirm(
       "Clear the entire corpus? This deletes all papers and chunks."
     );
-  
     if (!confirmed) return;
-  
     try {
       const result = await clearCorpus();
       toast.success(`Cleared ${result.deleted_papers} papers`);
-      refetch();
+      await queryClient.invalidateQueries({ queryKey: ["corpus"] });
     } catch (err) {
       console.error("Failed to clear corpus", err);
       toast.error("Failed to clear corpus");
@@ -78,6 +89,18 @@ export function CorpusPage() {
       </div>
 
       <div className="paper-list">
+        {Object.entries(uploading).map(([name, pct]) => (
+          <div key={name} className="paper-card uploading">
+            <span className="paper-icon" aria-hidden>⏳</span>
+            <div className="paper-card-body">
+              <div className="paper-title">{name}</div>
+              <div className="paper-upload-progress">
+                <div className="paper-upload-bar" style={{ width: `${pct}%` }} />
+              </div>
+              <div className="paper-meta">{pct < 100 ? `Uploading ${pct}%` : "Processing…"}</div>
+            </div>
+          </div>
+        ))}
         {stats?.papers.map((p) => (
           <div key={p.id} className="paper-card">
             <span className="paper-icon" aria-hidden>
