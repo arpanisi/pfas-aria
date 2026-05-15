@@ -39,7 +39,10 @@ def chat_completion(
     provider = (llm.provider or "openrouter").lower().strip()
     if provider == "openrouter":
         return _openrouter_chat(
-            messages, max_tokens=max_t, temperature=temp, timeout=to,
+            messages,
+            max_tokens=max_t,
+            temperature=temp,
+            timeout=to,
             use_chat_model=use_chat_model,
         )
     if provider == "ollama":
@@ -95,7 +98,9 @@ def _openrouter_chat(
                 "temperature": temperature,
                 "max_tokens": max_tokens,
             }
-            response = requests.post(url, json=payload, headers=headers, timeout=per_model_timeout)
+            response = requests.post(
+                url, json=payload, headers=headers, timeout=per_model_timeout
+            )
             response.raise_for_status()
             data = response.json()
             msg = data["choices"][0]["message"]
@@ -112,7 +117,9 @@ def _openrouter_chat(
                             content = str(text)
                             break
             if not content:
-                raise LLMError(f"Unexpected OpenRouter response shape: {repr(data)[:500]}")
+                raise LLMError(
+                    f"Unexpected OpenRouter response shape: {repr(data)[:500]}"
+                )
             if model_id != llm.model:
                 logger.info("OpenRouter fallback succeeded with model {}", model_id)
             return content.strip()
@@ -123,7 +130,9 @@ def _openrouter_chat(
             last_error = e
             continue
 
-    raise LLMError(f"All OpenRouter models failed. Last error: {last_error}") from last_error
+    raise LLMError(
+        f"All OpenRouter models failed. Last error: {last_error}"
+    ) from last_error
 
 
 def _ollama_chat(

@@ -55,13 +55,13 @@ class ProcessingResult:
 
 
 _REF_HEADER = re.compile(
-    r'\n(References|Bibliography|REFERENCES|BIBLIOGRAPHY|Works\s+Cited)\s*\n',
+    r"\n(References|Bibliography|REFERENCES|BIBLIOGRAPHY|Works\s+Cited)\s*\n",
     re.IGNORECASE,
 )
-_ET_AL = re.compile(r'\bet\s+al\.', re.IGNORECASE)
-_BRACKET_NUM = re.compile(r'\[\d+\]')
-_AUTHOR_YEAR = re.compile(r'\([A-Z][a-z]+(?:\s+et\s+al\.)?,\s*\d{4}\)')
-_DOI = re.compile(r'(doi:|https?://doi\.org/)', re.IGNORECASE)
+_ET_AL = re.compile(r"\bet\s+al\.", re.IGNORECASE)
+_BRACKET_NUM = re.compile(r"\[\d+\]")
+_AUTHOR_YEAR = re.compile(r"\([A-Z][a-z]+(?:\s+et\s+al\.)?,\s*\d{4}\)")
+_DOI = re.compile(r"(doi:|https?://doi\.org/)", re.IGNORECASE)
 
 
 class CorpusProcessor:
@@ -110,11 +110,15 @@ class CorpusProcessor:
             truncated_text, ref_found = self._truncate_at_references(raw_text)
             if ref_found:
                 removed_pct = (len(raw_text) - len(truncated_text)) / len(raw_text)
-                logger.info(f"  {pdf_path.name}: truncated references section ({removed_pct:.0%} removed)")
+                logger.info(
+                    f"  {pdf_path.name}: truncated references section ({removed_pct:.0%} removed)"
+                )
             raw_chunks = self._split_into_chunks(truncated_text)
             chunks, n_dropped = self._filter_reference_chunks(raw_chunks)
             if n_dropped:
-                logger.info(f"  {pdf_path.name}: dropped {n_dropped} reference-like chunks")
+                logger.info(
+                    f"  {pdf_path.name}: dropped {n_dropped} reference-like chunks"
+                )
             paper_hash = self._hash_file(pdf_path)
 
             processed_chunks = []
@@ -235,7 +239,7 @@ class CorpusProcessor:
     def _truncate_at_references(text: str) -> tuple[str, bool]:
         m = _REF_HEADER.search(text)
         if m:
-            return text[:m.start()], True
+            return text[: m.start()], True
         return text, False
 
     @staticmethod
@@ -247,11 +251,11 @@ class CorpusProcessor:
                 kept.append(chunk)
                 continue
 
-            et_al_count  = len(_ET_AL.findall(chunk))
+            et_al_count = len(_ET_AL.findall(chunk))
             bracket_nums = _BRACKET_NUM.findall(chunk)
-            author_year  = len(_AUTHOR_YEAR.findall(chunk))
-            doi_count    = len(_DOI.findall(chunk))
-            short_lines  = sum(1 for ln in lines if len(ln.strip()) < 80)
+            author_year = len(_AUTHOR_YEAR.findall(chunk))
+            doi_count = len(_DOI.findall(chunk))
+            short_lines = sum(1 for ln in lines if len(ln.strip()) < 80)
             short_line_ratio = short_lines / len(lines)
 
             nums = [int(m[1:-1]) for m in bracket_nums]
@@ -263,7 +267,10 @@ class CorpusProcessor:
                 et_al_count > 6
                 or (sequential and len(bracket_nums) >= 5)
                 or doi_count >= 3
-                or (short_line_ratio > 0.60 and (et_al_count > 3 or author_year > 3 or doi_count > 1))
+                or (
+                    short_line_ratio > 0.60
+                    and (et_al_count > 3 or author_year > 3 or doi_count > 1)
+                )
             )
             if is_ref:
                 dropped += 1

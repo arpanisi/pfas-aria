@@ -2,6 +2,7 @@
 Infer a one-line domain description from dataset columns and corpus paper titles.
 Called once before hypothesis screening begins; result threads into all LLM prompts.
 """
+
 from __future__ import annotations
 
 import re
@@ -25,7 +26,12 @@ def _extract_domain_line(text: str) -> str:
         words = line.split()
         if 2 <= len(words) <= 20:
             # Strip leading labels like "Output:" / "Answer:" / "Domain:"
-            line = re.sub(r"^(output|answer|domain|context|result)\s*[:\-]\s*", "", line, flags=re.IGNORECASE)
+            line = re.sub(
+                r"^(output|answer|domain|context|result)\s*[:\-]\s*",
+                "",
+                line,
+                flags=re.IGNORECASE,
+            )
             return line.rstrip(".")
     return lines[-1].rstrip(".") if lines else ""
 
@@ -43,6 +49,7 @@ def infer_domain_context(col_names: list[str], paper_titles: list[str]) -> str:
     )
     try:
         from src.utils.llm_client import chat_completion
+
         result = chat_completion(
             messages=[{"role": "user", "content": prompt}],
             max_tokens=60,

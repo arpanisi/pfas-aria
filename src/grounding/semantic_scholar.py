@@ -90,18 +90,26 @@ class SemanticScholarClient:
 
             if response.status_code == 429:
                 for wait in (5, 10, 15):
-                    logger.warning(f"Semantic Scholar rate limited — retrying in {wait}s")
+                    logger.warning(
+                        f"Semantic Scholar rate limited — retrying in {wait}s"
+                    )
                     time.sleep(wait)
                     response = requests.get(
                         f"{BASE_URL}/paper/search",
-                        params={"query": query, "limit": str(max_results), "fields": self.FIELDS},
+                        params={
+                            "query": query,
+                            "limit": str(max_results),
+                            "fields": self.FIELDS,
+                        },
                         headers=self._headers,
                         timeout=30,
                     )
                     if response.status_code != 429:
                         break
                 if response.status_code != 200:
-                    logger.warning(f"Semantic Scholar returned {response.status_code} after retries")
+                    logger.warning(
+                        f"Semantic Scholar returned {response.status_code} after retries"
+                    )
                     return []
 
             if response.status_code != 200:

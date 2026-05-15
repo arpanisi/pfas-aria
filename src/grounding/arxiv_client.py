@@ -69,19 +69,20 @@ class ArxivClient:
                     for a in entry.findall(f"{{{_ATOM_NS}}}author")[:5]
                 ]
                 categories = [
-                    t.get("term", "")
-                    for t in entry.findall(f"{{{_ATOM_NS}}}category")
+                    t.get("term", "") for t in entry.findall(f"{{{_ATOM_NS}}}category")
                 ]
                 if title and abstract:
-                    papers.append(ArxivPaper(
-                        arxiv_id=arxiv_id,
-                        title=title,
-                        authors=authors,
-                        abstract=abstract,
-                        url=url,
-                        published=published,
-                        categories=categories,
-                    ))
+                    papers.append(
+                        ArxivPaper(
+                            arxiv_id=arxiv_id,
+                            title=title,
+                            authors=authors,
+                            abstract=abstract,
+                            url=url,
+                            published=published,
+                            categories=categories,
+                        )
+                    )
             except Exception:
                 continue
         return papers

@@ -52,7 +52,9 @@ class CrossrefClient:
             headers = {}
             if self.api_key:
                 headers["crossref-api-key"] = f"Bearer {self.api_key}"
-            r = requests.get(BASE_URL, params=params, headers=headers, timeout=self.timeout)
+            r = requests.get(
+                BASE_URL, params=params, headers=headers, timeout=self.timeout
+            )
             if r.status_code != 200:
                 logger.warning("Crossref returned {}", r.status_code)
                 return []
@@ -93,7 +95,7 @@ def _clean_abstract(value: object) -> str:
 
 def _published_year(item: dict) -> int | None:
     for key in ("published-print", "published-online", "published"):
-        parts = ((item.get(key) or {}).get("date-parts") or [])
+        parts = (item.get(key) or {}).get("date-parts") or []
         if parts and parts[0]:
             try:
                 return int(parts[0][0])

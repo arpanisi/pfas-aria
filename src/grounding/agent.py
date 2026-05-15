@@ -191,9 +191,7 @@ class GroundingAgent:
         coeff = model_result.coefficients.get(top_var, 0.0)
         direction = "increases" if coeff > 0 else "decreases"
 
-        return (
-            f"{top_var} {direction} {model_result.outcome_variable}"
-        )
+        return f"{top_var} {direction} {model_result.outcome_variable}"
 
     def _get_domain_context(self) -> str:
         try:

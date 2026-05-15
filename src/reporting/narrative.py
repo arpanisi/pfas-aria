@@ -291,13 +291,29 @@ def _fallback_hypothesis_rationale(
 
 
 _BAD_STARTS = (
-    "we need", "let me", "i need", "the user", "let's", "sure,",
-    "here is", "here's", "rewrite", "input:", "certainly",
+    "we need",
+    "let me",
+    "i need",
+    "the user",
+    "let's",
+    "sure,",
+    "here is",
+    "here's",
+    "rewrite",
+    "input:",
+    "certainly",
 )
 
 _GARBAGE_PATTERNS = (
-    "<|", "#include", ".map(", "Array.", "NSAttributed",
-    "dp-thinking", "dp-answer", "---------", "####",
+    "<|",
+    "#include",
+    ".map(",
+    "Array.",
+    "NSAttributed",
+    "dp-thinking",
+    "dp-answer",
+    "---------",
+    "####",
 )
 
 # ── Thinking-strip helpers ─────────────────────────────────────────────────────
@@ -327,17 +343,18 @@ def _strip_thinking(text: str) -> str:
     # Take everything after the last CoT-end marker if one exists
     matches = list(_COT_END.finditer(text))
     if matches:
-        candidate = text[matches[-1].end():].strip()
+        candidate = text[matches[-1].end() :].strip()
         if len(candidate) > 20:
             text = candidate
     # Second pass: split on sentence boundaries (". Capital" or ".Capital"),
     # then keep only chunks that look like real prose output.
     parts = re.split(r"\.(?:\s+(?=[A-Z])|(?=[A-Z]))", text)
     real = [
-        p.strip() for p in parts
-        if len(p.strip().split()) >= 8          # substantial length
-        and not _COT_LABEL_RE.search(p)         # no CoT labels
-        and p.strip()[:1].isupper()             # starts with capital (not ":" or '"')
+        p.strip()
+        for p in parts
+        if len(p.strip().split()) >= 8  # substantial length
+        and not _COT_LABEL_RE.search(p)  # no CoT labels
+        and p.strip()[:1].isupper()  # starts with capital (not ":" or '"')
     ]
     if real:
         # Deduplicate before joining — some LLMs repeat a sentence verbatim
@@ -410,6 +427,7 @@ def _llm_call_with_retry(
     circuit = get_llm_circuit()
     for attempt in range(1, max_attempts + 1):
         try:
+
             def _do() -> str:
                 return chat_completion(
                     messages,
@@ -418,16 +436,19 @@ def _llm_call_with_retry(
                     timeout=timeout,
                     use_chat_model=use_chat_model,
                 )
+
             result = _strip_thinking(circuit.call(_do) or "").strip()
             # Strip common label-leak prefixes
             for prefix in ("output:", "title:", "answer:"):
                 if result.lower().startswith(prefix):
-                    result = result[len(prefix):].strip()
+                    result = result[len(prefix) :].strip()
                     break
             result = result.lstrip(":").strip()
             if validate(result):
                 return result
-            logger.warning("LLM attempt {}/{} failed validation, retrying", attempt, max_attempts)
+            logger.warning(
+                "LLM attempt {}/{} failed validation, retrying", attempt, max_attempts
+            )
         except Exception as e:
             logger.warning("LLM attempt {}/{} failed: {}", attempt, max_attempts, e)
     return None
@@ -468,7 +489,19 @@ def aggregate_system_summary(rationales: list[str]) -> str | None:
         return None
 
 
-_KNOWN_ACRONYMS = {"pfas", "pfbs", "pfoa", "pfos", "c4", "c5", "c6", "ph", "uv", "ntp", "cap"}
+_KNOWN_ACRONYMS = {
+    "pfas",
+    "pfbs",
+    "pfoa",
+    "pfos",
+    "c4",
+    "c5",
+    "c6",
+    "ph",
+    "uv",
+    "ntp",
+    "cap",
+}
 _UNIT_SUFFIXES = re.compile(
     r"\s*(mg[_\s]l|ug[_\s]l|ng[_\s]l|mg[_\s]kg|ppm|ppb|pct|percent|min|sec|hrs?|degc|celsius)\s*$",
     re.IGNORECASE,
@@ -491,7 +524,9 @@ def _deterministic_title(bundles: list) -> str:
         bundles,
         key=lambda b: getattr(getattr(b, "model_result", None), "r_squared", 0) or 0,
     )
-    sig: list[str] = list(getattr(best.model_result, "significant_variables", None) or [])[:2]
+    sig: list[str] = list(
+        getattr(best.model_result, "significant_variables", None) or []
+    )[:2]
     desc: str = getattr(best.hypothesis, "description", "") or ""
 
     # Parse outcome from "predict X in regime" pattern in the description
@@ -534,13 +569,37 @@ def _is_clean_title(text: str) -> bool:
             return False
     # Must contain at least one "action" word so it reads as a finding, not a topic
     action_words = {
-        "drive", "drives", "determine", "determines", "predict", "predicts",
-        "control", "controls", "govern", "governs", "increase", "increases",
-        "reduce", "reduces", "dominate", "dominates", "shape", "shapes",
-        "define", "defines", "explain", "explains", "amplify", "amplifies",
-        "are", "is",
+        "drive",
+        "drives",
+        "determine",
+        "determines",
+        "predict",
+        "predicts",
+        "control",
+        "controls",
+        "govern",
+        "governs",
+        "increase",
+        "increases",
+        "reduce",
+        "reduces",
+        "dominate",
+        "dominates",
+        "shape",
+        "shapes",
+        "define",
+        "defines",
+        "explain",
+        "explains",
+        "amplify",
+        "amplifies",
+        "are",
+        "is",
     }
-    if not any(w.lower().rstrip("s") in action_words or w.lower() in action_words for w in words):
+    if not any(
+        w.lower().rstrip("s") in action_words or w.lower() in action_words
+        for w in words
+    ):
         return False
     return True
 
@@ -558,15 +617,22 @@ def generate_display_title(
     fallback = _deterministic_title(bundles)
 
     # Extract structured facts from the best bundle for the prompt
-    best = max(
-        bundles,
-        key=lambda b: getattr(getattr(b, "model_result", None), "r_squared", 0) or 0,
-    ) if bundles else None
+    best = (
+        max(
+            bundles,
+            key=lambda b: getattr(getattr(b, "model_result", None), "r_squared", 0)
+            or 0,
+        )
+        if bundles
+        else None
+    )
 
     if best is None:
         return fallback
 
-    sig: list[str] = list(getattr(best.model_result, "significant_variables", None) or [])[:3]
+    sig: list[str] = list(
+        getattr(best.model_result, "significant_variables", None) or []
+    )[:3]
     r2: float = float(getattr(best.model_result, "r_squared", 0) or 0)
     desc: str = getattr(best.hypothesis, "description", "") or ""
     top_cit: str = ""
@@ -726,7 +792,9 @@ def generate_hypothesis_description(
         settings = get_settings()
         cap = request_timeout_seconds if request_timeout_seconds is not None else 120
         effective = min(int(cap), int(settings.llm.request_timeout))
-        result = _llm_call_with_retry(messages, max_tokens=80, temperature=0.2, timeout=effective)
+        result = _llm_call_with_retry(
+            messages, max_tokens=80, temperature=0.2, timeout=effective
+        )
         return result or fallback
     except Exception as e:
         logger.warning("Hypothesis description LLM failed: {}", e)
@@ -790,7 +858,9 @@ def generate_hypothesis_rationale_from_model_evidence(
         settings = get_settings()
         cap = request_timeout_seconds if request_timeout_seconds is not None else 120
         effective = min(int(cap), int(settings.llm.request_timeout))
-        result = _llm_call_with_retry(messages, max_tokens=120, temperature=0.3, timeout=effective)
+        result = _llm_call_with_retry(
+            messages, max_tokens=120, temperature=0.3, timeout=effective
+        )
         return result or fallback
     except Exception as e:
         logger.warning("Hypothesis rationale LLM failed: {}", e)

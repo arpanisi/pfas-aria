@@ -153,6 +153,7 @@ def read_normalized_dataframe(
         )
     normalize_dataframe_columns(df)
     from src.ingestion.upload_data_cleaning import apply_upload_data_cleaning
+
     _notes, _enc = apply_upload_data_cleaning(df, unified_meta=unified_meta)
     return df, excel_header_row, unified_meta
 
@@ -188,10 +189,20 @@ def run_status_from_orm(
         hypotheses_tested = int(hypothesis_count)
 
     _status = status_override if status_override is not None else run.status
-    cur_round = current_round_override if current_round_override is not None else run.n_rounds_completed
-    match = match_score_override if match_score_override is not None else run.final_match_score
+    cur_round = (
+        current_round_override
+        if current_round_override is not None
+        else run.n_rounds_completed
+    )
+    match = (
+        match_score_override
+        if match_score_override is not None
+        else run.final_match_score
+    )
     conv = converged_override if converged_override is not None else run.converged
-    screening_phase = str(snap["screening_phase"]) if snap.get("screening_phase") else None
+    screening_phase = (
+        str(snap["screening_phase"]) if snap.get("screening_phase") else None
+    )
 
     return RunStatus(
         run_id=run.id,
@@ -228,17 +239,25 @@ def screening_run_matches_grounding_payload(
 async def delete_hypothesis_subtree(db: AsyncSession, run_id: str) -> None:
     hyp_ids = (
         (await db.execute(select(Hypothesis.id).where(Hypothesis.run_id == run_id)))
-        .scalars().all()
+        .scalars()
+        .all()
     )
     if not hyp_ids:
         return
     mr_ids = (
-        (await db.execute(select(ModelResult.id).where(ModelResult.hypothesis_id.in_(hyp_ids))))
-        .scalars().all()
+        (
+            await db.execute(
+                select(ModelResult.id).where(ModelResult.hypothesis_id.in_(hyp_ids))
+            )
+        )
+        .scalars()
+        .all()
     )
     if mr_ids:
         await db.execute(delete(Citation).where(Citation.model_result_id.in_(mr_ids)))
-        await db.execute(delete(ValidationResult).where(ValidationResult.model_result_id.in_(mr_ids)))
+        await db.execute(
+            delete(ValidationResult).where(ValidationResult.model_result_id.in_(mr_ids))
+        )
         await db.execute(delete(ModelResult).where(ModelResult.id.in_(mr_ids)))
     await db.execute(delete(Hypothesis).where(Hypothesis.run_id == run_id))
 
@@ -366,21 +385,25 @@ async def persist_grounded_bundles(
         db.add(vr_row)
 
         for c in bundle.citations:
-            db.add(Citation(
-                id=str(uuid.uuid4()),
-                model_result_id=mid,
-                source=c.source,
-                title=c.title,
-                authors=[],
-                url=c.url,
-                year=c.year,
-                similarity_score=float(c.similarity_score),
-                abstract_snippet=c.abstract_snippet,
-                variable=c.variable,
-            ))
+            db.add(
+                Citation(
+                    id=str(uuid.uuid4()),
+                    model_result_id=mid,
+                    source=c.source,
+                    title=c.title,
+                    authors=[],
+                    url=c.url,
+                    year=c.year,
+                    similarity_score=float(c.similarity_score),
+                    abstract_snippet=c.abstract_snippet,
+                    variable=c.variable,
+                )
+            )
 
     if bundles:
-        best_match = max((float(b.model_result.match_score) for b in bundles), default=0.0)
+        best_match = max(
+            (float(b.model_result.match_score) for b in bundles), default=0.0
+        )
         run.final_match_score = best_match
     snap = dict(snapshot_dict(run))
     snap["grounding_saved_at"] = datetime.utcnow().isoformat() + "Z"
@@ -431,7 +454,9 @@ async def persist_stats_bundles(
             r_squared=float(m.get("r_squared", 0.0)),
             adj_r_squared=float(m.get("adj_r_squared", 0.0)),
             n_observations=int(m.get("n_observations", 0)),
-            coefficients=sanitize_float_json(dict(m.get("coefficients") or {}), fallback=0.0),
+            coefficients=sanitize_float_json(
+                dict(m.get("coefficients") or {}), fallback=0.0
+            ),
             p_values=sanitize_float_json(dict(m.get("p_values") or {}), fallback=1.0),
             significant_variables=list(m.get("significant_variables") or []),
             match_score=0.0,
@@ -452,38 +477,49 @@ async def load_stats_candidates(
     regime_label = f"regime_{regime_id}"
     hyp_rows = (
         (await db.execute(select(Hypothesis).where(Hypothesis.run_id == run_id)))
-        .scalars().all()
+        .scalars()
+        .all()
     )
     if not hyp_rows:
         return []
     out: list[dict] = []
     for hyp in hyp_rows:
         meta = next(
-            (r for r in (hyp.rag_support or []) if isinstance(r, dict) and r.get("_stats_meta")),
+            (
+                r
+                for r in (hyp.rag_support or [])
+                if isinstance(r, dict) and r.get("_stats_meta")
+            ),
             None,
         )
         if not meta:
             continue
         mr = (
-            (await db.execute(
-                select(ModelResult).where(
-                    ModelResult.hypothesis_id == hyp.id,
-                    ModelResult.regime_label == regime_label,
+            (
+                await db.execute(
+                    select(ModelResult).where(
+                        ModelResult.hypothesis_id == hyp.id,
+                        ModelResult.regime_label == regime_label,
+                    )
                 )
-            )).scalars().first()
+            )
+            .scalars()
+            .first()
         )
         if not mr:
             continue
-        out.append({
-            "y_col": str(meta.get("y_col") or ""),
-            "x_cols": list(meta.get("x_cols") or hyp.primary_variables or []),
-            "r_squared": float(mr.r_squared),
-            "adj_r_squared": float(mr.adj_r_squared),
-            "n_obs": int(mr.n_observations),
-            "coefficients": dict(mr.coefficients or {}),
-            "p_values": dict(mr.p_values or {}),
-            "significant_variables": list(mr.significant_variables or []),
-        })
+        out.append(
+            {
+                "y_col": str(meta.get("y_col") or ""),
+                "x_cols": list(meta.get("x_cols") or hyp.primary_variables or []),
+                "r_squared": float(mr.r_squared),
+                "adj_r_squared": float(mr.adj_r_squared),
+                "n_obs": int(mr.n_observations),
+                "coefficients": dict(mr.coefficients or {}),
+                "p_values": dict(mr.p_values or {}),
+                "significant_variables": list(mr.significant_variables or []),
+            }
+        )
     return out
 
 
@@ -518,64 +554,103 @@ async def load_grounded_bundles(
         return None
 
     meta = snap.get("grounding_result_meta") or {}
-    hyp_rows = (await db.execute(select(Hypothesis).where(Hypothesis.run_id == run_id))).scalars().all()
+    hyp_rows = (
+        (await db.execute(select(Hypothesis).where(Hypothesis.run_id == run_id)))
+        .scalars()
+        .all()
+    )
 
     bundles_out: list[ScreeningBundleOut] = []
     for hyp in hyp_rows:
-        if any(isinstance(s, dict) and s.get("_stats_meta") for s in (hyp.rag_support or [])):
+        if any(
+            isinstance(s, dict) and s.get("_stats_meta")
+            for s in (hyp.rag_support or [])
+        ):
             continue
-        mr = (await db.execute(select(ModelResult).where(ModelResult.hypothesis_id == hyp.id))).scalars().first()
+        mr = (
+            (
+                await db.execute(
+                    select(ModelResult).where(ModelResult.hypothesis_id == hyp.id)
+                )
+            )
+            .scalars()
+            .first()
+        )
         if not mr:
             continue
-        vr = (await db.execute(select(ValidationResult).where(ValidationResult.model_result_id == mr.id))).scalars().first()
-        cit_rows = (await db.execute(select(Citation).where(Citation.model_result_id == mr.id))).scalars().all()
-        bundles_out.append(ScreeningBundleOut(
-            hypothesis=ScreeningHypothesisOut(
-                id=hyp.id,
-                hypothesis_id=hyp.hypothesis_id,
-                round=hyp.round,
-                description=hyp.description,
-                rationale=hyp.rationale,
-                primary_variables=list(hyp.primary_variables),
-                model_family=hyp.model_family,
-                priority_score=hyp.priority_score,
-                is_refinement=hyp.is_refinement,
-            ),
-            model_result=ScreeningModelOut(
-                id=mr.id,
-                hypothesis_id=hyp.hypothesis_id,
-                model_type=mr.model_type,
-                r_squared=mr.r_squared,
-                adj_r_squared=mr.adj_r_squared,
-                n_observations=mr.n_observations,
-                coefficients=dict(mr.coefficients or {}),
-                p_values=dict(mr.p_values or {}),
-                significant_variables=list(mr.significant_variables or []),
-                match_score=mr.match_score,
-                validation_passed=bool(vr.overall_passed) if vr else False,
-            ),
-            citations=[
-                ScreeningCitationOut(
-                    id=c.id,
-                    source=c.source,
-                    title=c.title,
-                    url=c.url,
-                    year=c.year,
-                    similarity_score=c.similarity_score,
-                    abstract_snippet=c.abstract_snippet,
-                    variable=c.variable,
-                    hypothesis_id=hyp.hypothesis_id,
+        vr = (
+            (
+                await db.execute(
+                    select(ValidationResult).where(
+                        ValidationResult.model_result_id == mr.id
+                    )
                 )
-                for c in cit_rows
-            ],
-        ))
+            )
+            .scalars()
+            .first()
+        )
+        cit_rows = (
+            (
+                await db.execute(
+                    select(Citation).where(Citation.model_result_id == mr.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        bundles_out.append(
+            ScreeningBundleOut(
+                hypothesis=ScreeningHypothesisOut(
+                    id=hyp.id,
+                    hypothesis_id=hyp.hypothesis_id,
+                    round=hyp.round,
+                    description=hyp.description,
+                    rationale=hyp.rationale,
+                    primary_variables=list(hyp.primary_variables),
+                    model_family=hyp.model_family,
+                    priority_score=hyp.priority_score,
+                    is_refinement=hyp.is_refinement,
+                ),
+                model_result=ScreeningModelOut(
+                    id=mr.id,
+                    hypothesis_id=hyp.hypothesis_id,
+                    model_type=mr.model_type,
+                    r_squared=mr.r_squared,
+                    adj_r_squared=mr.adj_r_squared,
+                    n_observations=mr.n_observations,
+                    coefficients=dict(mr.coefficients or {}),
+                    p_values=dict(mr.p_values or {}),
+                    significant_variables=list(mr.significant_variables or []),
+                    match_score=mr.match_score,
+                    validation_passed=bool(vr.overall_passed) if vr else False,
+                ),
+                citations=[
+                    ScreeningCitationOut(
+                        id=c.id,
+                        source=c.source,
+                        title=c.title,
+                        url=c.url,
+                        year=c.year,
+                        similarity_score=c.similarity_score,
+                        abstract_snippet=c.abstract_snippet,
+                        variable=c.variable,
+                        hypothesis_id=hyp.hypothesis_id,
+                    )
+                    for c in cit_rows
+                ],
+            )
+        )
 
     summary = meta.get("system_summary") or None
     next_steps = meta.get("next_steps") or None
-    display_title = str(meta.get("display_title") or "") or "Literature Grounding Results"
+    display_title = (
+        str(meta.get("display_title") or "") or "Literature Grounding Results"
+    )
 
     if not summary or not next_steps:
-        rationales = [b.hypothesis.rationale for b in bundles_out if b.hypothesis.rationale]
+        rationales = [
+            b.hypothesis.rationale for b in bundles_out if b.hypothesis.rationale
+        ]
         if not summary:
             summary = await asyncio.to_thread(aggregate_system_summary, rationales)
         if not next_steps:

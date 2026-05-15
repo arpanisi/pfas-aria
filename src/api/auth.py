@@ -106,6 +106,7 @@ async def verify_clerk_token(
         # Network errors during JWKS refresh should not invalidate a valid session.
         # Log and raise 503 so the client retries rather than treating it as auth failure.
         from src.utils.logging import get_logger
+
         get_logger(__name__).warning("JWKS verification error (non-auth): {}", e)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

@@ -284,10 +284,7 @@ class GroundingScorer:
         """Convert a coefficient into a searchable finding statement."""
         direction = "increases" if coefficient > 0 else "decreases"
         magnitude = abs(coefficient)
-        return (
-            f"{variable} {direction} {outcome} "
-            f"(coefficient={magnitude:.4f})"
-        )
+        return f"{variable} {direction} {outcome} " f"(coefficient={magnitude:.4f})"
 
     def _build_summary(
         self, finding_scores: list[FindingScore], global_score: float

@@ -119,13 +119,19 @@ async def upload_dataset(
             from src.ingestion.unified_experimental_sheet import (
                 load_excel_bytes_with_layout,
             )
+
             df, excel_header_row, unified_meta = load_excel_bytes_with_layout(content)
     except Exception as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Cannot parse file: {e}") from e
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, f"Cannot parse file: {e}"
+        ) from e
 
     normalize_dataframe_columns(df)
     from src.ingestion.upload_data_cleaning import apply_upload_data_cleaning
-    cleaning_notes, encodings = apply_upload_data_cleaning(df, unified_meta=unified_meta)
+
+    cleaning_notes, encodings = apply_upload_data_cleaning(
+        df, unified_meta=unified_meta
+    )
 
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     (RAW_DIR / file.filename).write_bytes(content)
@@ -172,7 +178,9 @@ async def upload_dataset(
         variable_layout=layout,
     )
 
-    logger.info("Uploaded: %s (%s rows × %s cols)", file.filename, len(df), len(df.columns))
+    logger.info(
+        "Uploaded: %s (%s rows × %s cols)", file.filename, len(df), len(df.columns)
+    )
     return DatasetPreview(
         filename=file.filename,
         n_rows=len(df),
@@ -211,12 +219,18 @@ async def legacy_segmentation_preview(
     try:
         if unified_meta is not None:
             res = assign_screening_layout_from_column_lists(
-                df, unified_meta.input_cols, unified_meta.output_cols, replace_no_in_inputs=True,
+                df,
+                unified_meta.input_cols,
+                unified_meta.output_cols,
+                replace_no_in_inputs=True,
             )
         else:
             res = assign_screening_layout_from_legacy_column_slices(
-                df, input_start=input_start, input_end=input_end,
-                output_start=output_start, replace_no_in_inputs=True,
+                df,
+                input_start=input_start,
+                input_end=input_end,
+                output_start=output_start,
+                replace_no_in_inputs=True,
             )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
@@ -229,15 +243,27 @@ async def legacy_segmentation_preview(
         idx_sample = [str(i) for i in sub.index[:40].tolist()]
         cond_sample: list[str] = []
         if cond_col and cond_col in sub.columns:
-            cond_sample = sorted(sub[cond_col].dropna().astype(str).unique().tolist())[:25]
-        regime_out.append(LegacyRegimeSummaryOut(
-            regime_id=int(rid),
-            n_rows=len(sub),
-            row_indices_sample=idx_sample,
-            condition_values_sample=cond_sample,
-            non_constant_input_cols=[c for c in input_list if c in sub.columns and int(sub[c].nunique()) > 1],
-            non_constant_output_cols=[c for c in output_list if c in sub.columns and int(sub[c].nunique()) > 1],
-        ))
+            cond_sample = sorted(sub[cond_col].dropna().astype(str).unique().tolist())[
+                :25
+            ]
+        regime_out.append(
+            LegacyRegimeSummaryOut(
+                regime_id=int(rid),
+                n_rows=len(sub),
+                row_indices_sample=idx_sample,
+                condition_values_sample=cond_sample,
+                non_constant_input_cols=[
+                    c
+                    for c in input_list
+                    if c in sub.columns and int(sub[c].nunique()) > 1
+                ],
+                non_constant_output_cols=[
+                    c
+                    for c in output_list
+                    if c in sub.columns and int(sub[c].nunique()) > 1
+                ],
+            )
+        )
 
     return LegacySegmentationPreviewOut(
         filename=Path(filename).name,
@@ -258,7 +284,9 @@ async def legacy_segmentation_preview(
 # ── Automated screening ───────────────────────────────────────────────────────
 
 
-@router.post("/automated-screening-iteration", response_model=AutomatedScreeningIterationOut)
+@router.post(
+    "/automated-screening-iteration", response_model=AutomatedScreeningIterationOut
+)
 async def automated_screening_iteration(
     body: AutomatedScreeningIterationIn,
     user: CurrentUser,
@@ -270,7 +298,9 @@ async def automated_screening_iteration(
 
     def _sync() -> int:
         df, _hdr, unified_meta = read_normalized_dataframe(path)
-        return run_automated_screening_iteration(df, unified_meta=unified_meta, regime_id=body.regime_id)
+        return run_automated_screening_iteration(
+            df, unified_meta=unified_meta, regime_id=body.regime_id
+        )
 
     n = int(await asyncio.get_event_loop().run_in_executor(None, _sync))
 
@@ -336,16 +366,21 @@ async def screening_grounded(
         df, _hdr, unified_meta = read_normalized_dataframe(path)
         retriever = RAGPipeline().build(force_rebuild=False)
         payload = run_screening_grounded_for_regime(
-            df, unified_meta=unified_meta, regime_id=body.regime_id, retriever=retriever,
+            df,
+            unified_meta=unified_meta,
+            regime_id=body.regime_id,
+            retriever=retriever,
         )
-        payload.update({
-            "dataset_n_rows": len(df),
-            "dataset_n_cols": len(df.columns),
-            "n_corpus_papers": n_papers,
-            "filename": Path(body.filename).name,
-            "run_name": (body.run_name or "").strip() or "Screening run",
-            "display_title": "Literature Grounding of Discovered Signals",
-        })
+        payload.update(
+            {
+                "dataset_n_rows": len(df),
+                "dataset_n_cols": len(df.columns),
+                "n_corpus_papers": n_papers,
+                "filename": Path(body.filename).name,
+                "run_name": (body.run_name or "").strip() or "Screening run",
+                "display_title": "Literature Grounding of Discovered Signals",
+            }
+        )
         return payload
 
     raw = await asyncio.get_event_loop().run_in_executor(None, _sync)
@@ -368,10 +403,17 @@ async def screening_grounded(
             extra_warnings.append(
                 f"Run id {rid_in!r} was not found; results are shown but not saved."
             )
-        elif not screening_run_matches_grounding_payload(run_row, filename=body.filename, regime_id=body.regime_id):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "run_id does not match this screening pass.")
+        elif not screening_run_matches_grounding_payload(
+            run_row, filename=body.filename, regime_id=body.regime_id
+        ):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "run_id does not match this screening pass.",
+            )
         else:
-            await persist_grounded_bundles(db, run_row, bundles_out, regime_id=body.regime_id)
+            await persist_grounded_bundles(
+                db, run_row, bundles_out, regime_id=body.regime_id
+            )
             await invalidate_db_cache(rid_in)
             persisted_id = rid_in
 
@@ -390,17 +432,19 @@ async def screening_grounded(
         run_row = await db.get(Run, persisted_id)
         if run_row:
             snap = dict(snapshot_dict(run_row))
-            snap.setdefault("grounding_result_meta", {}).update({
-                "run_name": raw["run_name"],
-                "filename": raw["filename"],
-                "display_title": display_title,
-                "dataset_n_rows": raw.get("dataset_n_rows", 0),
-                "dataset_n_cols": raw.get("dataset_n_cols", 0),
-                "n_corpus_papers": raw.get("n_corpus_papers", 0),
-                "regime_n_rows": raw.get("regime_n_rows", 0),
-                "system_summary": summary,
-                "next_steps": nxt,
-            })
+            snap.setdefault("grounding_result_meta", {}).update(
+                {
+                    "run_name": raw["run_name"],
+                    "filename": raw["filename"],
+                    "display_title": display_title,
+                    "dataset_n_rows": raw.get("dataset_n_rows", 0),
+                    "dataset_n_cols": raw.get("dataset_n_cols", 0),
+                    "n_corpus_papers": raw.get("n_corpus_papers", 0),
+                    "regime_n_rows": raw.get("regime_n_rows", 0),
+                    "system_summary": summary,
+                    "next_steps": nxt,
+                }
+            )
             run_row.config_snapshot = snap
             await db.commit()
 
@@ -446,12 +490,22 @@ async def screening_grounded_start(
             },
         )
     job_id = str(uuid.uuid4())[:16]
-    await _set_job(job_id, pct=0, stage="Starting…", done=False, result=None, error=None, started_at=time.time())
+    await _set_job(
+        job_id,
+        pct=0,
+        stage="Starting…",
+        done=False,
+        result=None,
+        error=None,
+        started_at=time.time(),
+    )
     asyncio.create_task(_run_grounding_job(job_id, body, n_papers))
     return GroundingJobStart(job_id=job_id)
 
 
-@router.get("/screening-grounded/progress/{job_id}", response_model=GroundingJobProgress)
+@router.get(
+    "/screening-grounded/progress/{job_id}", response_model=GroundingJobProgress
+)
 async def screening_grounded_progress(
     job_id: str,
     user: CurrentUser,
@@ -492,7 +546,13 @@ async def _run_grounding_job(
             async with AsyncSessionFactory() as session:
                 saved = await load_grounded_bundles(session, rid_in)
                 if saved:
-                    await _set_job(job_id, pct=100, stage="Done", done=True, result=saved.model_dump())
+                    await _set_job(
+                        job_id,
+                        pct=100,
+                        stage="Done",
+                        done=True,
+                        result=saved.model_dump(),
+                    )
                     return
 
         path = safe_raw_file_path(body.filename)
@@ -500,12 +560,16 @@ async def _run_grounding_job(
         precomputed: list[dict] = []
         if rid_in:
             async with AsyncSessionFactory() as session:
-                precomputed = await load_stats_candidates(session, rid_in, body.regime_id)
+                precomputed = await load_stats_candidates(
+                    session, rid_in, body.regime_id
+                )
 
         loop = asyncio.get_event_loop()
 
         if precomputed:
-            await _set_job(job_id, pct=20, stage="Loading pre-computed screening results…")
+            await _set_job(
+                job_id, pct=20, stage="Loading pre-computed screening results…"
+            )
 
             def _sync_rag_only() -> dict:
                 from src.pipeline.screening_grounded import (
@@ -516,16 +580,21 @@ async def _run_grounding_job(
                 retriever = RAGPipeline().build(force_rebuild=False)
                 df, _hdr, _meta = read_normalized_dataframe(path)
                 payload = run_grounding_from_precomputed(
-                    precomputed, retriever, regime_id=body.regime_id, regime_n_rows=len(df),
+                    precomputed,
+                    retriever,
+                    regime_id=body.regime_id,
+                    regime_n_rows=len(df),
                 )
-                payload.update({
-                    "dataset_n_rows": len(df),
-                    "dataset_n_cols": len(df.columns),
-                    "n_corpus_papers": n_papers,
-                    "filename": Path(body.filename).name,
-                    "run_name": (body.run_name or "").strip() or "Screening run",
-                    "display_title": "Literature Grounding of Discovered Signals",
-                })
+                payload.update(
+                    {
+                        "dataset_n_rows": len(df),
+                        "dataset_n_cols": len(df.columns),
+                        "n_corpus_papers": n_papers,
+                        "filename": Path(body.filename).name,
+                        "run_name": (body.run_name or "").strip() or "Screening run",
+                        "display_title": "Literature Grounding of Discovered Signals",
+                    }
+                )
                 return payload
 
             await _set_job(job_id, pct=30, stage="Retrieving literature matches…")
@@ -539,7 +608,9 @@ async def _run_grounding_job(
                     pct = min(pct + 2, 44)
                     job = await get_grounding_job(job_id)
                     if job and not job.get("done") and job.get("pct", 0) < 45:
-                        await _set_job(job_id, pct=pct, stage="Retrieving literature matches…")
+                        await _set_job(
+                            job_id, pct=pct, stage="Retrieving literature matches…"
+                        )
 
             stop_rag = asyncio.Event()
             rag_task = asyncio.create_task(_rag_tick(stop_rag))
@@ -550,7 +621,9 @@ async def _run_grounding_job(
                 rag_task.cancel()
 
         else:
-            await _set_job(job_id, pct=15, stage="Fitting models & retrieving literature…")
+            await _set_job(
+                job_id, pct=15, stage="Fitting models & retrieving literature…"
+            )
 
             async def _fitting_tick(stop: asyncio.Event) -> None:
                 pct = 15
@@ -558,10 +631,20 @@ async def _run_grounding_job(
                     await asyncio.sleep(4)
                     if stop.is_set():
                         break
-                    pct = min(pct + 4, 30) if pct < 30 else min(pct + 2, 40) if pct < 40 else min(pct + 1, 44)
+                    pct = (
+                        min(pct + 4, 30)
+                        if pct < 30
+                        else min(pct + 2, 40)
+                        if pct < 40
+                        else min(pct + 1, 44)
+                    )
                     job = await get_grounding_job(job_id)
                     if job and not job.get("done") and job.get("pct", 0) < 45:
-                        await _set_job(job_id, pct=pct, stage="Fitting models & retrieving literature…")
+                        await _set_job(
+                            job_id,
+                            pct=pct,
+                            stage="Fitting models & retrieving literature…",
+                        )
 
             def _sync_full() -> dict:
                 from src.pipeline.screening_grounded import (
@@ -572,16 +655,21 @@ async def _run_grounding_job(
                 df, _hdr, unified_meta = read_normalized_dataframe(path)
                 retriever = RAGPipeline().build(force_rebuild=False)
                 payload = run_screening_grounded_for_regime(
-                    df, unified_meta=unified_meta, regime_id=body.regime_id, retriever=retriever,
+                    df,
+                    unified_meta=unified_meta,
+                    regime_id=body.regime_id,
+                    retriever=retriever,
                 )
-                payload.update({
-                    "dataset_n_rows": len(df),
-                    "dataset_n_cols": len(df.columns),
-                    "n_corpus_papers": n_papers,
-                    "filename": Path(body.filename).name,
-                    "run_name": (body.run_name or "").strip() or "Screening run",
-                    "display_title": "Literature Grounding of Discovered Signals",
-                })
+                payload.update(
+                    {
+                        "dataset_n_rows": len(df),
+                        "dataset_n_cols": len(df.columns),
+                        "n_corpus_papers": n_papers,
+                        "filename": Path(body.filename).name,
+                        "run_name": (body.run_name or "").strip() or "Screening run",
+                        "display_title": "Literature Grounding of Discovered Signals",
+                    }
+                )
                 return payload
 
             stop_tick = asyncio.Event()
@@ -633,14 +721,22 @@ async def _run_grounding_job(
             )
             completed_count[0] += 1
             pct = 50 + int(completed_count[0] / max(n_bundles, 1) * 40)
-            await _set_job(job_id, pct=pct, stage=f"Interpreting hypothesis {completed_count[0]}/{n_bundles}…")
+            await _set_job(
+                job_id,
+                pct=pct,
+                stage=f"Interpreting hypothesis {completed_count[0]}/{n_bundles}…",
+            )
             return ScreeningBundleOut(
-                hypothesis=b.hypothesis.model_copy(update={"description": description, "rationale": rationale}),
+                hypothesis=b.hypothesis.model_copy(
+                    update={"description": description, "rationale": rationale}
+                ),
                 model_result=b.model_result,
                 citations=b.citations,
             )
 
-        bundles_out = list(await asyncio.gather(*(_one_tracked(b) for b in bundles_out)))
+        bundles_out = list(
+            await asyncio.gather(*(_one_tracked(b) for b in bundles_out))
+        )
 
         await _set_job(job_id, pct=93, stage="Saving results…")
 
@@ -651,12 +747,21 @@ async def _run_grounding_job(
             async with AsyncSessionFactory() as session:
                 run_row = await session.get(Run, rid_in)
                 if not run_row:
-                    extra_warnings.append(f"Run id {rid_in!r} was not found; results shown but not saved.")
-                elif not screening_run_matches_grounding_payload(run_row, filename=body.filename, regime_id=body.regime_id):
-                    extra_warnings.append("run_id does not match this screening pass (filename or regime).")
+                    extra_warnings.append(
+                        f"Run id {rid_in!r} was not found; results shown but not saved."
+                    )
+                elif not screening_run_matches_grounding_payload(
+                    run_row, filename=body.filename, regime_id=body.regime_id
+                ):
+                    extra_warnings.append(
+                        "run_id does not match this screening pass (filename or regime)."
+                    )
                 else:
                     await persist_grounded_bundles(
-                        session, run_row, bundles_out, regime_id=body.regime_id,
+                        session,
+                        run_row,
+                        bundles_out,
+                        regime_id=body.regime_id,
                         grounding_meta={
                             "run_name": raw.get("run_name", ""),
                             "filename": raw.get("filename", ""),
@@ -671,7 +776,9 @@ async def _run_grounding_job(
                     await invalidate_db_cache(rid_in)
                     persisted_id = rid_in
 
-        rationales = [b.hypothesis.rationale for b in bundles_out if b.hypothesis.rationale]
+        rationales = [
+            b.hypothesis.rationale for b in bundles_out if b.hypothesis.rationale
+        ]
         summary = await asyncio.to_thread(aggregate_system_summary, rationales)
         sig_vars, non_sig_vars, cit_titles = next_steps_inputs(bundles_out)
         nxt = await asyncio.to_thread(
@@ -688,11 +795,13 @@ async def _run_grounding_job(
                 run_row = await session.get(Run, persisted_id)
                 if run_row:
                     snap = dict(snapshot_dict(run_row))
-                    snap.setdefault("grounding_result_meta", {}).update({
-                        "system_summary": summary,
-                        "next_steps": nxt,
-                        "display_title": display_title,
-                    })
+                    snap.setdefault("grounding_result_meta", {}).update(
+                        {
+                            "system_summary": summary,
+                            "next_steps": nxt,
+                            "display_title": display_title,
+                        }
+                    )
                     run_row.config_snapshot = snap
                     await session.commit()
 
@@ -711,7 +820,9 @@ async def _run_grounding_job(
             system_summary=summary,
             next_steps=nxt,
         )
-        await _set_job(job_id, pct=100, stage="Done", done=True, result=result.model_dump())
+        await _set_job(
+            job_id, pct=100, stage="Done", done=True, result=result.model_dump()
+        )
         logger.info("Grounding job %s complete bundles=%s", job_id, len(bundles_out))
 
     except Exception as e:
@@ -735,14 +846,18 @@ async def screening_stats(
         from src.pipeline.screening_grounded import run_screening_stats_for_regime
 
         df, _hdr, unified_meta = read_normalized_dataframe(path)
-        payload = run_screening_stats_for_regime(df, unified_meta=unified_meta, regime_id=body.regime_id)
-        payload.update({
-            "dataset_n_rows": len(df),
-            "dataset_n_cols": len(df.columns),
-            "filename": Path(body.filename).name,
-            "run_name": (body.run_name or "").strip() or "Screening stats",
-            "display_title": "Statistical Screening Results",
-        })
+        payload = run_screening_stats_for_regime(
+            df, unified_meta=unified_meta, regime_id=body.regime_id
+        )
+        payload.update(
+            {
+                "dataset_n_rows": len(df),
+                "dataset_n_cols": len(df.columns),
+                "filename": Path(body.filename).name,
+                "run_name": (body.run_name or "").strip() or "Screening stats",
+                "display_title": "Statistical Screening Results",
+            }
+        )
         return payload
 
     raw = await asyncio.get_event_loop().run_in_executor(None, _sync)
@@ -758,13 +873,24 @@ async def screening_stats(
     rid_in = (body.run_id or "").strip()
     if rid_in and bundles_out:
         run_row = await db.get(Run, rid_in)
-        if run_row and screening_run_matches_grounding_payload(run_row, filename=body.filename, regime_id=body.regime_id):
-            await persist_stats_bundles(db, run_row, raw.get("bundles", []), regime_id=body.regime_id)
+        if run_row and screening_run_matches_grounding_payload(
+            run_row, filename=body.filename, regime_id=body.regime_id
+        ):
+            await persist_stats_bundles(
+                db, run_row, raw.get("bundles", []), regime_id=body.regime_id
+            )
             persisted_id = rid_in
-            logger.info("Persisted %s stats bundles to run %s", len(bundles_out), rid_in)
+            logger.info(
+                "Persisted %s stats bundles to run %s", len(bundles_out), rid_in
+            )
 
-    logger.info("Screening stats file=%s regime=%s bundles=%s user=%s",
-                body.filename, body.regime_id, len(bundles_out), user.get("sub", "?"))
+    logger.info(
+        "Screening stats file=%s regime=%s bundles=%s user=%s",
+        body.filename,
+        body.regime_id,
+        len(bundles_out),
+        user.get("sub", "?"),
+    )
     return ScreeningStatsOut(
         run_name=raw["run_name"],
         filename=raw["filename"],
@@ -780,12 +906,17 @@ async def screening_stats(
 
 
 @router.get("/status/{run_id}", response_model=RunStatus)
-async def get_run_status_endpoint(run_id: str, user: CurrentUser, db: DBSession) -> RunStatus:
+async def get_run_status_endpoint(
+    run_id: str, user: CurrentUser, db: DBSession
+) -> RunStatus:
     run = await db.get(Run, run_id)
     if not run:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Run {run_id} not found")
     hyp_count = int(
-        await db.scalar(select(func.count(Hypothesis.id)).where(Hypothesis.run_id == run_id)) or 0
+        await db.scalar(
+            select(func.count(Hypothesis.id)).where(Hypothesis.run_id == run_id)
+        )
+        or 0
     )
     cached = await get_run_status(run_id)
     if cached:
@@ -794,7 +925,9 @@ async def get_run_status_endpoint(run_id: str, user: CurrentUser, db: DBSession)
             hypothesis_count=hyp_count,
             status_override=str(cached.get("status", run.status)),
             current_round_override=int(cached.get("round", run.n_rounds_completed)),
-            match_score_override=float(cached.get("match_score", run.final_match_score)),
+            match_score_override=float(
+                cached.get("match_score", run.final_match_score)
+            ),
             converged_override=bool(cached.get("converged", run.converged)),
         )
     return run_status_from_orm(run, hypothesis_count=hyp_count)
@@ -815,11 +948,15 @@ async def list_runs(user: CurrentUser, db: DBSession) -> list[RunStatus]:
         )
     ).all()
     count_map = {row[0]: int(row[1]) for row in count_rows}
-    return [run_status_from_orm(r, hypothesis_count=count_map.get(r.id, 0)) for r in runs]
+    return [
+        run_status_from_orm(r, hypothesis_count=count_map.get(r.id, 0)) for r in runs
+    ]
 
 
 @router.delete("/runs/screening/all", response_model=ClearScreeningRunsOut)
-async def delete_all_screening_runs(user: CurrentUser, db: DBSession) -> ClearScreeningRunsOut:
+async def delete_all_screening_runs(
+    user: CurrentUser, db: DBSession
+) -> ClearScreeningRunsOut:
     result = await db.execute(select(Run))
     deleted = 0
     for row in result.scalars().all():
@@ -830,7 +967,9 @@ async def delete_all_screening_runs(user: CurrentUser, db: DBSession) -> ClearSc
     return ClearScreeningRunsOut(deleted=deleted)
 
 
-@router.delete("/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+@router.delete(
+    "/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
+)
 async def delete_run(run_id: str, user: CurrentUser, db: DBSession) -> None:
     if not await delete_run_record(db, run_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Run {run_id} not found")

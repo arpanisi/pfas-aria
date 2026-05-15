@@ -140,12 +140,26 @@ def _external_search_query(y_col: str, x_cols: list[str]) -> str:
         species.append("PFHxS")
     # Always include generic PFAS alongside any specific compound —
     # improves recall on arXiv/S2 where specific short-chain compounds are less indexed.
-    if any(t in cols for t in ("pfas", "pfaa", "perfluoro", "fluoride", "fluoriode")) or species:
+    if (
+        any(t in cols for t in ("pfas", "pfaa", "perfluoro", "fluoride", "fluoriode"))
+        or species
+    ):
         species.append("PFAS")
     terms.extend(dict.fromkeys(species))  # deduplicate, preserve order
 
     # ── Treatment / process ───────────────────────────────────────────────────
-    if any(t in cols for t in ("voltage", "discharge", "plasma", "gas_flow", "gas_used", "flowrate", "kv")):
+    if any(
+        t in cols
+        for t in (
+            "voltage",
+            "discharge",
+            "plasma",
+            "gas_flow",
+            "gas_used",
+            "flowrate",
+            "kv",
+        )
+    ):
         terms.append("cold atmospheric plasma")
     if any(t in cols for t in ("h2o2", "peroxide")):
         terms.append("hydrogen peroxide")
@@ -155,7 +169,9 @@ def _external_search_query(y_col: str, x_cols: list[str]) -> str:
         terms.append("ozonation")
     if any(t in cols for t in ("sonication", "ultrasound", "acoustic")):
         terms.append("sonochemical")
-    if any(t in cols for t in ("electrochemical", "electrolysis", "current", "electrode")):
+    if any(
+        t in cols for t in ("electrochemical", "electrolysis", "current", "electrode")
+    ):
         terms.append("electrochemical oxidation")
 
     # ── Outcome type ──────────────────────────────────────────────────────────
@@ -165,7 +181,9 @@ def _external_search_query(y_col: str, x_cols: list[str]) -> str:
         terms.append("degradation")
 
     # ── Matrix — always include for PFAS (always water context) ──────────────
-    if species or any(t in cols for t in ("water", "solution", "aqueous", "ph", "conductivity")):
+    if species or any(
+        t in cols for t in ("water", "solution", "aqueous", "ph", "conductivity")
+    ):
         terms.append("water treatment")
 
     if not terms:
@@ -601,7 +619,15 @@ def run_grounding_from_precomputed(
 
     bundles: list[dict] = []
     for i, (c, cit_chunks, q, sq, q_vec, sq_vec) in enumerate(
-        zip(chosen, cit_chunk_lists, cit_queries, cit_search_queries, cit_q_vecs, cit_sq_vecs), start=1
+        zip(
+            chosen,
+            cit_chunk_lists,
+            cit_queries,
+            cit_search_queries,
+            cit_q_vecs,
+            cit_sq_vecs,
+        ),
+        start=1,
     ):
         hid = f"H{i}"
         oid = secrets.token_hex(4)
@@ -618,17 +644,19 @@ def run_grounding_from_precomputed(
         )
         citations: list[dict] = []
         for ch in cit_chunks[:1]:
-            citations.append({
-                "id": f"{c.y_col}:0:{ch.doc_id[:12]}",
-                "source": "corpus",
-                "title": ch.title or ch.source_file,
-                "url": ch.source_file,
-                "year": None,
-                "similarity_score": round(float(ch.similarity_score), 4),
-                "abstract_snippet": ch.text[:500].strip() if ch.text else None,
-                "variable": c.y_col,
-                "hypothesis_id": hid,
-            })
+            citations.append(
+                {
+                    "id": f"{c.y_col}:0:{ch.doc_id[:12]}",
+                    "source": "corpus",
+                    "title": ch.title or ch.source_file,
+                    "url": ch.source_file,
+                    "year": None,
+                    "similarity_score": round(float(ch.similarity_score), 4),
+                    "abstract_snippet": ch.text[:500].strip() if ch.text else None,
+                    "variable": c.y_col,
+                    "hypothesis_id": hid,
+                }
+            )
         citations.extend(_external_citations(sq, sq_vec, hid, c.y_col))
 
         bundles.append(
@@ -699,7 +727,12 @@ def _arxiv_citation(
         papers = ArxivClient().search(search_query)
         if not papers:
             return None
-        best = max(papers, key=lambda p: _score_against_query(sq_vec, f"{p.title}. {p.abstract}"[:1000]))
+        best = max(
+            papers,
+            key=lambda p: _score_against_query(
+                sq_vec, f"{p.title}. {p.abstract}"[:1000]
+            ),
+        )
         score = _score_against_query(sq_vec, f"{best.title}. {best.abstract}"[:1000])
         if score < EXT_CIT_MIN_SCORE:
             logger.debug("arXiv best score {:.1%} below threshold — skipping", score)
@@ -709,7 +742,9 @@ def _arxiv_citation(
             "source": "arxiv",
             "title": best.title,
             "url": best.url,
-            "year": best.published[:4] if best.published and best.published != "unknown" else None,
+            "year": best.published[:4]
+            if best.published and best.published != "unknown"
+            else None,
             "similarity_score": round(score, 4),
             "abstract_snippet": best.abstract[:500].strip(),
             "variable": variable,
@@ -728,7 +763,12 @@ def _s2_citation(
         papers = SemanticScholarClient().search(search_query, max_results=10)
         if not papers:
             return None
-        best = max(papers, key=lambda p: _score_against_query(sq_vec, f"{p.title}. {p.abstract}"[:1000]))
+        best = max(
+            papers,
+            key=lambda p: _score_against_query(
+                sq_vec, f"{p.title}. {p.abstract}"[:1000]
+            ),
+        )
         score = _score_against_query(sq_vec, f"{best.title}. {best.abstract}"[:1000])
         if score < EXT_CIT_MIN_SCORE:
             logger.debug("S2 best score {:.1%} below threshold — skipping", score)
@@ -906,8 +946,12 @@ def _citations_for_candidate(
     retriever: Retriever, c: _Candidate, hypothesis_label: str
 ) -> list[dict]:
     embedder = get_embedder()
-    query = _llm_grounding_query(c.y_col, c.x_cols)           # natural-language → corpus retrieval
-    search_query = _external_search_query(c.y_col, c.x_cols)   # domain keywords → arXiv/S2 search + scoring
+    query = _llm_grounding_query(
+        c.y_col, c.x_cols
+    )  # natural-language → corpus retrieval
+    search_query = _external_search_query(
+        c.y_col, c.x_cols
+    )  # domain keywords → arXiv/S2 search + scoring
 
     # sq_vec: used to score arXiv/S2 results (domain-keyword language ↔ paper abstract language)
     sq_vec = _norm_vec(embedder.embed_one(search_query).astype(np.float64))
@@ -918,19 +962,23 @@ def _citations_for_candidate(
 
     # 1 — uploaded corpus (scored with q_vec — same register as retrieval query)
     try:
-        chunks = retriever.retrieve(query=query, top_k=1, min_similarity=LIT_QUERY_MIN_SIM)
+        chunks = retriever.retrieve(
+            query=query, top_k=1, min_similarity=LIT_QUERY_MIN_SIM
+        )
         for ch in chunks[:1]:
-            out.append({
-                "id": f"{c.y_col}:0:{ch.doc_id[:12]}",
-                "source": "corpus",
-                "title": ch.title or ch.source_file,
-                "url": ch.source_file,
-                "year": None,
-                "similarity_score": round(float(ch.similarity_score), 4),
-                "abstract_snippet": ch.text[:500].strip() if ch.text else None,
-                "variable": c.y_col,
-                "hypothesis_id": hypothesis_label,
-            })
+            out.append(
+                {
+                    "id": f"{c.y_col}:0:{ch.doc_id[:12]}",
+                    "source": "corpus",
+                    "title": ch.title or ch.source_file,
+                    "url": ch.source_file,
+                    "year": None,
+                    "similarity_score": round(float(ch.similarity_score), 4),
+                    "abstract_snippet": ch.text[:500].strip() if ch.text else None,
+                    "variable": c.y_col,
+                    "hypothesis_id": hypothesis_label,
+                }
+            )
     except Exception as e:
         logger.debug("Corpus citation retrieve failed: {}", e)
 

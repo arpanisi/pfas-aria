@@ -48,7 +48,7 @@ class EuropePMCClient:
             if r.status_code != 200:
                 logger.warning("Europe PMC returned {}", r.status_code)
                 return []
-            results = ((r.json().get("resultList") or {}).get("result") or [])
+            results = (r.json().get("resultList") or {}).get("result") or []
             return [self._to_paper(item) for item in results if item.get("title")]
         except Exception as e:  # noqa: BLE001
             logger.warning("Europe PMC search failed: {}", e)
@@ -74,7 +74,12 @@ class EuropePMCClient:
             abstract=str(item.get("abstractText") or ""),
             year=_year(item.get("pubYear")),
             doi=str(doi) if doi else None,
-            url=url or str(item.get("fullTextUrlList", {}).get("fullTextUrl", [{}])[0].get("url", "")),
+            url=url
+            or str(
+                item.get("fullTextUrlList", {})
+                .get("fullTextUrl", [{}])[0]
+                .get("url", "")
+            ),
             citation_count=_int(item.get("citedByCount")),
             source=source,
         )

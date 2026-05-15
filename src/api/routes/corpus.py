@@ -110,7 +110,9 @@ async def infer_domain_context(
     if len(papers) < 3:
         _domain_cache["fingerprint"] = ""
         _domain_cache["content"] = ""
-        return DomainContextOut(domain_context="", n_papers=len(papers), corpus_fingerprint=fingerprint)
+        return DomainContextOut(
+            domain_context="", n_papers=len(papers), corpus_fingerprint=fingerprint
+        )
 
     if fingerprint == _domain_cache.get("fingerprint") and _domain_cache.get("context"):
         return DomainContextOut(
@@ -123,12 +125,15 @@ async def infer_domain_context(
 
     def _infer() -> str:
         from src.utils.domain_context import infer_domain_context
+
         return infer_domain_context(col_names, paper_titles)
 
     context = await asyncio.to_thread(_infer)
     _domain_cache["fingerprint"] = fingerprint
     _domain_cache["context"] = context
-    return DomainContextOut(domain_context=context, n_papers=len(papers), corpus_fingerprint=fingerprint)
+    return DomainContextOut(
+        domain_context=context, n_papers=len(papers), corpus_fingerprint=fingerprint
+    )
 
 
 @router.get("/stats", response_model=CorpusStats)

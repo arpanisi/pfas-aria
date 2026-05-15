@@ -193,7 +193,9 @@ class VectorStore:
         top_k: int = 5,
         min_similarity: float = 0.0,
     ) -> list[list[RetrievedChunk]]:
-        return [self.search(q, top_k=top_k, min_similarity=min_similarity) for q in queries]
+        return [
+            self.search(q, top_k=top_k, min_similarity=min_similarity) for q in queries
+        ]
 
     def search_many(
         self,
