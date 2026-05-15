@@ -36,6 +36,16 @@ class ArxivClient:
         self.max_results = max_results
         self.timeout = timeout
 
+    def search_for_finding(
+        self,
+        finding: str,
+        significant_variables: list[str],
+        domain_context: str,
+    ) -> list[ArxivPaper]:
+        var_str = " ".join(significant_variables[:3])
+        query = f"{domain_context} {var_str} {finding}"[:200].strip()
+        return self.search(query)
+
     def search(self, query: str) -> list[ArxivPaper]:
         logger.debug("arXiv search: '{}'", query[:80])
         try:

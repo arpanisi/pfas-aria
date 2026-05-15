@@ -88,7 +88,7 @@ async def verify_clerk_token(
             options={"verify_exp": True},
         )
 
-        return payload
+        return dict(payload)
 
     except jwt.ExpiredSignatureError:
         raise HTTPException(

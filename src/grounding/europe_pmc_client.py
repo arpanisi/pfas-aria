@@ -100,6 +100,6 @@ def _year(value: object) -> int | None:
 
 def _int(value: object) -> int:
     try:
-        return int(value)
+        return int(str(value))
     except (TypeError, ValueError):
         return 0

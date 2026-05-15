@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 
 from src.reporting.sections import (
     CrossOutputConsistency,
@@ -414,7 +415,7 @@ def _llm_call_with_retry(
     timeout: int,
     use_chat_model: bool = True,
     max_attempts: int = 3,
-    validator: object = None,
+    validator: Callable[[str], bool] | None = None,
 ) -> str | None:
     """Call the LLM and retry up to max_attempts times if output fails validation.
 
@@ -423,7 +424,7 @@ def _llm_call_with_retry(
     """
     from src.utils.resilience import get_llm_circuit
 
-    validate = validator if callable(validator) else _is_clean_sentence
+    validate = validator if validator is not None else _is_clean_sentence
     circuit = get_llm_circuit()
     for attempt in range(1, max_attempts + 1):
         try:
