@@ -91,7 +91,7 @@ _domain_cache: dict[str, str] = {"fingerprint": "", "context": ""}
 
 def _corpus_fingerprint(paper_ids: list[str]) -> str:
     payload = "|".join(sorted(paper_ids)).encode()
-    return hashlib.md5(payload).hexdigest()
+    return hashlib.md5(payload, usedforsecurity=False).hexdigest()
 
 
 @router.post("/domain-context", response_model=DomainContextOut)

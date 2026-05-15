@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -450,20 +451,21 @@ class DatasetDetector:
                 return None
 
             # Compute average entropy per timepoint
-            entropies = []
+            entropies: list[tuple[float, float]] = []
             for t in times:
                 subset = df[df[time_col] == t][pfca_cols].values
                 if len(subset) == 0:
                     continue
-                avg = subset.mean(axis=0)
-                total = avg.sum()
+                avg = np.asarray(subset.mean(axis=0), dtype=np.float64)
+                total = float(avg.sum())
                 if total < 1e-9:
-                    entropies.append((t, 0.0))
+                    entropies.append((float(t), 0.0))
                     continue
-                p = avg / total
-                p = p[p > 0]
-                h = float(-np.sum(p * np.log(p)))
-                entropies.append((t, h))
+                probabilities = avg / total
+                probabilities = cast(np.ndarray, probabilities[probabilities > 0])
+                entropy = float(np.sum(probabilities * np.log(probabilities)))
+                h = -entropy
+                entropies.append((float(t), h))
 
             if len(entropies) < 3:
                 return None

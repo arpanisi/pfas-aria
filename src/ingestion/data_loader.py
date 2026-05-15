@@ -149,7 +149,7 @@ class DataLoader:
                 p = PROJECT_ROOT / p
         if not p.exists():
             raise DataFileNotFoundError(
-                f"Data file not found: {p}\n"
+                f"Data file not found: {p}\n"  # nosec B608
                 f"Update 'data.file_path' in configs/data_config.yaml "
                 f"or set ARIA_DATA_FILE for UI uploads."
             )
@@ -218,7 +218,7 @@ class DataLoader:
         outcome = self._effective_outcome_name()
         if outcome not in df.columns:
             raise IngestionError(
-                f"Outcome variable '{outcome}' not found in dataset.\n"
+                f"Outcome variable '{outcome}' not found in dataset.\n"  # nosec B608
                 f"Available columns: {list(df.columns)}\n"
                 f"Update 'data.outcome_variable' in configs/data_config.yaml "
                 f"or set ARIA_OUTCOME_VARIABLE when launching from the UI."

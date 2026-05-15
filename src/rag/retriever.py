@@ -52,7 +52,8 @@ class Retriever:
 
     def _cache_key(self, query: str, top_k: int, min_similarity: float) -> str:
         raw = f"rag:{query}:{top_k}:{min_similarity}:{self._store.count()}"
-        return f"rag:{hashlib.md5(raw.encode()).hexdigest()[:16]}"
+        digest = hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()[:16]
+        return f"rag:{digest}"
 
     def _get_cache(self, key: str) -> list[RetrievedChunk] | None:
         if not self._redis_available:

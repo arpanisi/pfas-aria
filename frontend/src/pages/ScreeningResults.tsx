@@ -173,7 +173,7 @@ export function ScreeningResults() {
 
   const [selectedHypId, setSelectedHypId] = useState<string | null>(null);
 
-  const bundles = query.data?.bundles ?? [];
+  const bundles = useMemo(() => query.data?.bundles ?? [], [query.data?.bundles]);
   const hypotheses = useMemo(() => bundles.map((b) => b.hypothesis), [bundles]);
   const modelResults = useMemo(() => bundles.map((b) => b.model_result), [bundles]);
 
@@ -208,7 +208,10 @@ export function ScreeningResults() {
 
   const selectedModel = modelForHypothesis(selectedHyp, modelResults);
   const effects = useMemo(() => buildEffects(selectedModel), [selectedModel]);
-  const citationsForHyp = selectedBundle?.citations ?? [];
+  const citationsForHyp = useMemo(
+    () => selectedBundle?.citations ?? [],
+    [selectedBundle?.citations],
+  );
   const grounding = useMemo(
     () => buildGrounding(citationsForHyp, selectedHyp),
     [citationsForHyp, selectedHyp],

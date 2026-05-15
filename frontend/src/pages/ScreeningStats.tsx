@@ -78,7 +78,7 @@ export function ScreeningStats() {
 
   const [selectedHypId, setSelectedHypId] = useState<string | null>(null);
 
-  const bundles = query.data?.bundles ?? [];
+  const bundles = useMemo(() => query.data?.bundles ?? [], [query.data?.bundles]);
   const hypotheses = useMemo(() => bundles.map((b) => b.hypothesis), [bundles]);
   const modelResults = useMemo(() => bundles.map((b) => b.model_result), [bundles]);
 

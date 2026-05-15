@@ -124,7 +124,7 @@ async def delete_run_status(run_id: str) -> None:
 
 def _hash(text: str) -> str:
     """Short hash for cache keys."""
-    return hashlib.md5(text.encode()).hexdigest()[:16]
+    return hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()[:16]
 
 
 async def ping() -> bool:

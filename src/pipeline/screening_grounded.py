@@ -11,6 +11,7 @@ from __future__ import annotations
 import secrets
 import warnings
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -707,7 +708,7 @@ def run_grounding_from_precomputed(
 
 
 def _score_against_query(query_vec: np.ndarray, text: str) -> float:
-    v = get_embedder().embed_one(text).astype(np.float64)
+    v: np.ndarray = get_embedder().embed_one(text).astype(np.float64)
     norm = float(np.linalg.norm(v))
     if norm < 1e-12:
         return 0.0
@@ -939,7 +940,7 @@ def _external_citations(
 
 def _norm_vec(v: np.ndarray) -> np.ndarray:
     n = float(np.linalg.norm(v))
-    return v / n if n > 1e-12 else v
+    return cast(np.ndarray, v / n if n > 1e-12 else v)
 
 
 def _citations_for_candidate(
