@@ -47,6 +47,8 @@ htmlcov/
 *.swp
 *.swo
 .DS_Store
+.cursor
+.benchmarks
 
 # ── Node (frontend) ───────────────────────────────────────────────────────────
 frontend/node_modules/
@@ -55,9 +57,7 @@ frontend/dist/
 frontend/build/
 
 # ── Notebooks ────────────────────────────────────────────────────────────────
-notebooks/**/.ipynb_checkpoints/
-notebooks/**/*.ipynb
-notebooks/data/
+notebooks/
 scripts
 
 # ── Workflows ────────────────────────────────────────────────────────────────
