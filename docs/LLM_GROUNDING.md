@@ -44,10 +44,32 @@ The current configuration supports three deployment styles:
 | Provider mode | Use case | Notes |
 |---------------|----------|-------|
 | OpenRouter free models | Hosted access to free/open-weight or free-tier chat models. | Useful when local hardware is unavailable. Availability and rate limits can change. |
-| Ollama | Local open-source inference. | Best for privacy and reproducibility when the user can run models locally. |
-| RunPod / OpenAI-compatible endpoint | Self-hosted or rented GPU inference. | Useful for larger open-weight models without depending on a closed API. |
+| Ollama | Optional local open-source inference. | Not needed for Llama access because Llama is already configured through OpenRouter; useful only when local/private inference is preferred. |
+| RunPod / OpenAI-compatible endpoint | Self-hosted or rented GPU inference. | Supported by the client but not currently used. RunPod is paid infrastructure, not a free-model path. |
 
-The configured model list favors free models such as DeepSeek, Llama, Qwen, Gemma, GLM, Hermes, Nemotron, and other open/free model routes where available. The exact hosted availability can vary, so the system includes fallback models rather than assuming one model will always respond.
+The configured model list favors free OpenRouter routes. The exact hosted availability can vary, so the system includes fallback models rather than assuming one model will always respond.
+
+Currently configured OpenRouter free models:
+
+- `deepseek/deepseek-v4-flash:free`
+- `meta-llama/llama-3.3-70b-instruct:free`
+- `nousresearch/hermes-3-llama-3.1-405b:free`
+- `openai/gpt-oss-120b:free`
+- `nvidia/nemotron-3-super-120b-a12b:free`
+- `qwen/qwen3-next-80b-a3b-instruct:free`
+- `google/gemma-4-31b-it:free`
+- `minimax/minimax-m2.5:free`
+- `qwen/qwen3-coder:free`
+- `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free`
+- `nvidia/nemotron-3-nano-30b-a3b:free`
+- `google/gemma-4-26b-a4b-it:free`
+- `z-ai/glm-4.5-air:free`
+- `openai/gpt-oss-20b:free`
+- `inclusionai/ring-2.6-1t:free`
+- `arcee-ai/trinity-large-thinking:free`
+- `baidu/cobuddy:free`
+
+RunPod remains useful as an optional future path when free hosted routes are too slow, rate-limited, or unreliable. Its advantage is control: a fixed open-weight model can be served behind an OpenAI-compatible endpoint with more predictable latency and fewer provider-side availability changes. The tradeoff is cost and operational complexity.
 
 ### Why This Matters
 
@@ -82,7 +104,7 @@ There are two related query styles:
    This is embedded and compared with uploaded corpus chunks.
 
 2. **External literature search query**
-   A keyword-focused query containing scientific terms such as PFAS, PFOA, plasma, UV photolysis, electrochemical oxidation, defluorination, or water treatment.
+   A keyword-focused query containing terms extracted from the selected variables, plus generic process hints such as plasma treatment, photolysis, electrochemical treatment, catalysis, adsorption, oxidation, or water treatment.
 
    This is used for external literature APIs and then scored by embedding similarity.
 

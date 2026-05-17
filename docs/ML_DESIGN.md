@@ -38,11 +38,47 @@ Before modeling, the data are normalized into a tabular form:
 
 - column names are standardized
 - eligible categorical values are encoded numerically
-- missing values are handled per model family
+- missing values are preserved unless a specific modeling step handles them
 - experimental/time identifiers are retained when available
 - regime labels are used to analyze distinct experimental systems separately
 
 The regime-level framing is important. PFAS degradation experiments often combine heterogeneous systems: different compounds, reactors, treatments, measurement schedules, or operating conditions. A global model across all rows can hide regime-specific behavior. The screening workflow therefore focuses on one experimental regime at a time when possible.
+
+### Current Data Treatment
+
+The active upload and screening workflow is conservative about missing data. Blank spreadsheet cells and placeholder values such as `-`, `N/A`, or `ND` are treated as missing values. They are not silently converted to zero. In the upload preview, missing values are displayed as blank cells because the preview is showing the cleaned tabular data, not an imputed modeling matrix.
+
+This distinction matters statistically. A zero can mean a true measured absence, while a blank cell may mean not measured, not applicable, below detection, or unavailable. Treating all missing cells as zero would impose a strong assumption before the model has any evidence for it.
+
+What is currently implemented in the active framing path:
+
+- unified Excel sheets are parsed using the declared input/output layout
+- column names are normalized
+- fully empty rows and fully empty columns are removed
+- categorical columns are label-encoded only when they are genuinely categorical
+- numeric-looking columns with placeholder strings are coerced to numeric, with placeholders becoming missing values
+- input and output column roles are preserved for screening
+- missing cells remain missing through upload preview and screening preparation
+
+Some columns can appear empty in the first preview rows even when they contain values later in the dataset. The preview is a sample of the cleaned table, not a completeness report for the full dataset.
+
+### Available But Not Fully Used
+
+The codebase also contains a more aggressive experimental ETL path. That path can validate data, transform features, drop columns with high missingness, impute missing numeric feature values using the median by default, create log-transformed variables for skewed predictors, cache processed data, and return a modeling-ready data bundle.
+
+That ETL path is not currently the main upload/screening path. It exists as implementation groundwork for a stricter preprocessing mode, but the current screening workflow intentionally avoids automatic imputation at upload time.
+
+What could be added deliberately in a future data-framing step:
+
+- a missingness report by input/output role
+- explicit distinction between true zero, below-detection, not measured, and not applicable
+- optional median or model-based imputation for selected numeric predictors
+- sensitivity checks comparing complete-case models against imputed-data models
+- rules for dropping columns above a predefined missingness threshold
+- per-regime missingness checks, since a column may be absent in one experimental regime but meaningful in another
+- explicit user-visible notes when a preview column is blank only because the first sampled rows are missing
+
+Any imputation should be treated as a modeling assumption, not as basic ingestion. For screening, the safer default is to preserve missingness first, then test whether conclusions are robust to reasonable preprocessing choices.
 
 ---
 
