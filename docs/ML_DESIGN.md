@@ -250,7 +250,7 @@ Regime-specific screening is therefore preferred for heterogeneous experimental 
 A candidate relationship is not ranked by R2 alone. The ranking combines three broad evidence classes:
 
 ```text
-statistical fit x diagnostic credibility x literature resemblance
+statistical fit x diagnostic credibility
 ```
 
 ### Fit Quality
@@ -274,39 +274,9 @@ Diagnostics are used to penalize candidates that look statistically fragile. Dep
 
 The diagnostic score is not a formal acceptance theorem. It is a practical ranking signal that helps keep obviously brittle candidates from dominating the results.
 
-### Literature Resemblance
-
-The literature score asks whether the candidate relationship resembles concepts or mechanisms found in the uploaded corpus or external scientific sources.
-
-For example, a candidate involving plasma treatment, chain length, fluoride release, or electrochemical degradation is converted into a mechanism-style search query. That query is compared against embedded literature chunks and external paper metadata.
-
-Literature resemblance is not treated as proof. It is used to distinguish between:
-
-- statistically strong and literature-consistent candidates
-- statistically strong but weakly grounded candidates
-- literature-suggested relationships not well covered by the uploaded data
-
 ---
 
-## 7. Embedding-Based Literature Grounding
-
-The system uses pretrained sentence embeddings to compare candidate hypotheses with scientific text. Text chunks and queries are embedded into a shared vector space. Similarity is computed using normalized vector dot products, equivalent to cosine similarity.
-
-This supports semantic matching rather than exact keyword matching. A candidate can match literature even if the wording differs, as long as the meaning is close.
-
-The grounding layer searches:
-
-- uploaded corpus chunks
-- external scientific metadata where available
-- citation titles and abstracts/snippets
-
-The embedding model is used only for inference. No corpus-specific fine-tuning is performed.
-
-Important limitation: semantic similarity measures resemblance, not agreement. A high-similarity paper may discuss the same mechanism, but it may support, qualify, or contradict the observed relationship. The system therefore presents literature matches as context, not as automatic validation.
-
----
-
-## 8. Interpretation of Coefficients
+## 7. Interpretation of Coefficients
 
 For linear models, coefficient signs are interpreted as directional associations conditional on the included predictors:
 
@@ -321,7 +291,7 @@ Categorical variables may be encoded numerically during upload cleanup. Encoded 
 
 ---
 
-## 9. Validation and Robustness
+## 8. Validation and Robustness
 
 The full hypothesis pipeline applies post-fit validation tests to fitted model results. These include multicollinearity checks, residual normality, heteroscedasticity checks, regime-level ANOVA, cross-validated R2, and effect-size summaries.
 
@@ -347,7 +317,7 @@ A candidate should be treated cautiously when:
 
 ---
 
-## 10. What the System Does Not Claim
+## 9. What the System Does Not Claim
 
 PFAS-ARIA does not claim that a screened association is causal.
 
@@ -365,7 +335,7 @@ The intended claim is narrower:
 
 ---
 
-## 11. How to Read the Output
+## 10. How to Read the Output
 
 The ranked hypotheses should be treated as a shortlist for expert review.
 
@@ -393,7 +363,7 @@ Good next steps may include:
 
 ---
 
-## 12. Practical Modeling Philosophy
+## 11. Practical Modeling Philosophy
 
 The system favors transparent, inspectable models at the screening stage. That is a deliberate choice.
 
