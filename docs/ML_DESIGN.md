@@ -1,155 +1,408 @@
-# ML design: what runs and how
+# Statistical and ML Design
 
-This document is about **machine learning and statistical learning as implemented in code**: which libraries and algorithms are used, where `fit` / `encode` / inference happen, and how vectors enter retrieval. It is not about databases or file paths; see [DATA_ENGINEERING.md](./DATA_ENGINEERING.md) for storage and ingestion.
+PFAS-ARIA is an evidence-building system for experimental PFAS degradation data. Its goal is not to train a single predictive model. Its goal is to take a structured experimental dataset, test many plausible predictor-outcome relationships, rank the strongest statistical signals, and then check whether those signals are consistent with relevant literature.
 
-**Out of scope here:** Large language models (OpenRouter, etc.) are used as **remote APIs** for text generation; their weights are not trained or fine-tuned in this repository.
-
----
-
-## 1. Dense text embeddings (SentenceTransformers)
-
-**Library:** `sentence_transformers.SentenceTransformer` (`src/rag/embedder.py`).
-
-**Model:** `configs/model_config.yaml` → `embeddings.model` (default `all-MiniLM-L6-v2`), `embeddings.device` (e.g. `cpu`).
-
-**How encoding works**
-
-- `Embedder.embed(texts)` calls `SentenceTransformer.encode(..., normalize_embeddings=True, batch_size=32)` and returns a NumPy matrix `(n_texts, dim)`. Normalization makes **dot product equal to cosine similarity** between query and chunk vectors.
-- `embed_one` is a single-row wrapper.
-
-**Where embeddings are produced**
-
-| Step | Code | What happens |
-|------|------|----------------|
-| Warm / singleton | `get_embedder()` | Loads the transformer once and reuses it. |
-| Backfill chunk vectors | `VectorStore.ensure_all_chunks_embedded` (`src/rag/vector_store.py`) | Finds Mongo `chunks` missing `embedding` or wrong `embedding_model`; batches texts through `embedder.embed`; writes float vectors + model name via `bulk_write`. |
-| RAG pipeline sync | `src/rag/pipeline.py` | Triggers the above so the retriever has vectors. |
-
-**How retrieval uses them**
-
-| Step | Code | What happens |
-|------|------|----------------|
-| Vector search | `VectorStore.search` | `embed_one(query)` → query vector; MongoDB aggregation **`$vectorSearch`** on field `embedding` (Atlas index from config `vector_store.atlas_vector_index`); returns top chunks with scores. |
-| Agent-facing retrieval | `Retriever` (`src/rag/retriever.py`) | Delegates to `VectorStore`; optional Redis serialization cache for repeated identical queries. |
-| Screening literature score | `screening_grounded.py` | Builds short strings from column names; `embed_one` / batched `embed` for queries; similarity against corpus or external hits (see that file for arXiv/S2 scoring paths). |
-| Grounding score vs corpus | `GroundingScorer` (`src/grounding/scorer.py`) | Embeds a “finding” sentence and candidate paper snippets; **`batch_similarity`** is a single matrix multiply `corpus @ query` because vectors are normalized. |
-
-So the **only neural “model” trained offline and shipped with the app** in the usual sense is the **pretrained sentence-transformer** used in inference mode (weights loaded from HuggingFace / cache, not updated by PFAS-ARIA training loops).
+The system should be read as a hypothesis screening and evidence triage workflow. It is designed to help a scientist decide what relationships deserve closer mechanistic interpretation, replication, or confirmatory modeling.
 
 ---
 
-## 2. Supervised regression (main agent pipeline)
+## 1. Statistical Goal
 
-**Orchestration:** `ModelingRunner` (`src/modeling/runner.py`) loops hypotheses → **`ModelingEngine.run`** → **`ValidationEngine.validate`** → picks **`best_model`** by R² among fits that pass validation.
+The central question is:
 
-**Design matrix construction:** `ModelingEngine._prepare_data` (`src/modeling/engine.py`)
+> Which experimental conditions, chemical descriptors, time variables, or treatment settings are most strongly associated with PFAS degradation outcomes, and are those associations supported by prior literature?
 
-- Subsets columns from the run’s DataFrame, `dropna`, casts outcome to float.
-- **`pandas.get_dummies(..., drop_first=True)`** for categoricals.
-- Applies **log / sqrt** transforms when the hypothesis requests them and values are in domain.
-- Adds **multiplicative interaction** columns for `(var1, var2)` pairs.
+For each experimental regime, the system searches over candidate relationships of the form:
 
-**Fitted estimators (each is `.fit` on numeric design, then coefficients / R² extracted into `ModelResult`):**
+```text
+outcome = f(selected predictors) + error
+```
 
-| `hypothesis.model_family` | Underlying call | Notes |
-|---------------------------|-----------------|--------|
-| `ols` | `statsmodels.api.OLS(y, add_constant(X)).fit()` | Classical linear regression with inference. |
-| `fixed_effects` | `linearmodels.panel.PanelOLS(..., entity_effects=True).fit(cov_type="clustered", ...)` | Needs entity + time columns heuristically detected on the frame; **on failure → OLS**. |
-| `random_effects` | `linearmodels.panel.RandomEffects(...).fit()` | Same panel index build; **on failure → OLS**. |
-| `lasso` | `StandardScaler` + **`sklearn.linear_model.LassoCV(cv=5)`** `.fit` / `.predict` | L1 path with CV for `alpha`; approximate p-values for reporting layer. |
-| `gradient_boosting` | **`sklearn.ensemble.GradientBoostingRegressor`** | Nonlinear tree ensemble on the same design matrix. |
+Examples of outcomes may include final concentration, removal fraction, fluoride release, degradation rate, or other measured response variables. Predictors may include treatment type, time, energy input, concentration, pH, compound class, reactor settings, additives, or encoded categorical factors.
 
-**Per-regime:** If the frame has a `regime` column and `per_regime=True`, the engine fits the same family **once globally** and **once per regime label** (skips tiny groups).
+The output is a ranked list of candidate hypotheses, not a causal proof. Each candidate is accompanied by:
 
-Allowed family names for the hypothesis agent come from **`configs/agent_config.yaml`** → `modeling.allowed_models`.
+- estimated effect sizes or coefficients
+- p-values or model-derived importance measures where available
+- fit statistics such as R2 and adjusted R2
+- diagnostic checks
+- literature matches
 
 ---
 
-## 3. Post-fit checks (statistical tests on residuals / design)
+## 2. Data Framing
 
-**Module:** `src/validation/validator.py` — not “training” new models, but **scoring the fitted linear structure**:
+The system assumes the uploaded dataset contains repeated experimental observations with some columns acting as inputs and others as measured outputs. When the workbook identifies input and output roles, those roles constrain the search space. This prevents the system from treating every variable as both a predictor and an outcome.
 
-- **VIF** via auxiliary OLS loops on columns of the design matrix.
-- **Shapiro–Wilk** (`scipy.stats`) on residuals.
-- **Breusch–Pagan**-style homoscedasticity using regression on squared residuals.
-- **ANOVA** across regimes when a regime column exists.
-- **K-fold cross-validation** using **`sklearn.linear_model.LinearRegression`** and **`sklearn.model_selection.cross_val_score`** on a prediction-focused check.
-- Effect-size style summaries from variance decomposition.
+Before modeling, the data are normalized into a tabular form:
 
-These gates decide **`ValidationReport.overall_passed`** and therefore whether a fit can become **`best_model`**.
+- column names are standardized
+- eligible categorical values are encoded numerically
+- missing values are handled per model family
+- experimental/time identifiers are retained when available
+- regime labels are used to analyze distinct experimental systems separately
 
----
-
-## 4. Unsupervised structure on the experimental table (regimes)
-
-**Module:** `src/agents/data_intelligence.py` — labels rows for downstream `regime` column. Methods are configured under **`configs/agent_config.yaml`** → `data_intelligence.regime_methods`.
-
-| Method | Library / API | What it does |
-|--------|----------------|--------------|
-| PELT changepoints | **`ruptures`** (`rpt.Pelt`) | 1D signal segmentation (ordered subsamples). |
-| HDBSCAN | **`hdbscan.HDBSCAN`** | Density-based clustering on scaled numeric features (`StandardScaler` then clusterer). |
-| K-means style regimes | **`sklearn.cluster.KMeans`**, **`sklearn.metrics.silhouette_score`** | Partition scaled space; silhouette used in logic for quality / choice. |
-| Label encoding for non-numeric keys | **`sklearn.preprocessing.LabelEncoder`** | Where categorical experiment keys need integer codes for clustering. |
-
-These routines **assign labels** to rows; they do not replace the supervised models in section 2.
+The regime-level framing is important. PFAS degradation experiments often combine heterogeneous systems: different compounds, reactors, treatments, measurement schedules, or operating conditions. A global model across all rows can hide regime-specific behavior. The screening workflow therefore focuses on one experimental regime at a time when possible.
 
 ---
 
-## 5. Upload-time categorical encoding (not hypothesis models)
+## 3. Candidate Hypothesis Screening
 
-**Module:** `src/ingestion/upload_data_cleaning.py` — **`sklearn.preprocessing.LabelEncoder`** per eligible string column so numeric pipelines see integers; maps are persisted for inversion (see data engineering doc).
+The screening stage fits many shallow, interpretable candidate models rather than one large model. This is intentional.
 
----
+The system is usually trying to answer:
 
-## 6. Automated screening (many shallow fits for exploration / UI)
+- Which small sets of predictors explain meaningful variation in an outcome?
+- Which predictors remain important after basic controls are included?
+- Which effects are stable enough to survive diagnostics?
+- Which statistically strong relationships also resemble mechanisms described in the literature?
 
-**Module:** `src/pipeline/automated_screening.py`.
+Candidate predictor sets are generated from the available input columns and evaluated against output columns. Each candidate is scored using a combination of fit quality, diagnostics, and literature similarity.
 
-**Pattern:** `sklearn.pipeline.Pipeline` with **`StandardScaler`** then a regressor, over a combinatorial search of small predictor subsets and numeric outputs (and regime segments from layout helpers).
+### Primary Model
 
-**Regressors used (via `Pipeline(...).fit`):**
+The default screening model is linear regression:
 
-- `LinearRegression`, `Ridge`, `Lasso`, `ElasticNet`
-- `GradientBoostingRegressor`, `RandomForestRegressor`
+```text
+y = beta_0 + beta_1 x_1 + ... + beta_k x_k + epsilon
+```
 
-Guards enforce minimum `n`, multicollinearity caps (`_corr_ok`), and panel-style design helpers where applicable. Counts of fits feed “hypotheses tested” style metrics in the UI.
+Linear models are used because the first objective is interpretability. Coefficients, directions, uncertainty, and variable-level summaries are more useful at the screening stage than a black-box prediction score alone.
 
----
+When ordinary least squares is unstable or poorly conditioned, the system can fall back to ridge regression for a more stable numerical fit. Ridge estimates are used pragmatically for ranking and robustness; they should not be interpreted as classical OLS inference.
 
-## 7. Grounded screening (OLS + Ridge fallback + retrieval scoring)
+### Panel-Aware Modeling
 
-**Module:** `src/pipeline/screening_grounded.py`.
+When the data contain repeated measurements by experiment, compound, treatment group, or time, the system can use panel-style fixed-effect models. The purpose is to separate within-entity variation from between-entity differences.
 
-**Primary fit:** `statsmodels.OLS` with constant on prepared `(X, y)`; on numerical failure, **`sklearn.linear_model.Ridge`** for point estimates and a coarse R².
+This matters when repeated observations are not independent. For example, time-course degradation measurements from the same experiment should not be treated the same as unrelated cross-sectional observations.
 
-**Literature side:** Retrieval and embedding calls (section 1) score how well each candidate’s implied query matches the corpus (and optional arXiv/S2 branches in the same file). Ranking combines **in-sample R²** and **similarity-style literature scores**.
+Panel models are preferred when:
 
----
+- an entity identifier is available or can be derived
+- a time variable exists
+- there are enough repeated observations
+- predictors vary within entities
 
-## 8. Standalone research modules (not wired into `ModelingEngine`)
-
-These implement additional ML/stats ideas but are **not** selected by `hypothesis.model_family` today:
-
-| Module | Technique |
-|--------|-----------|
-| `src/modeling/mixture_of_regressions.py` | **EM algorithm**: softmax gating (`scipy.special.softmax`) over regimes, weighted least-squares style M-steps, BIC for `K`. |
-| `src/modeling/grouped_fixed_effects.py` | Iterative **KMeans** on residual trajectories + augmented design OLS for group–time effects (Bonhomme–Manresa–style loop). |
-
-Use them from notebooks or future pipeline hooks if you wire them in.
+If those conditions are not met, the system falls back to simpler models.
 
 ---
 
-## Quick file index
+## 4. Models Included
 
-| Concern | File |
-|---------|------|
-| Transformer inference | `src/rag/embedder.py` |
-| Chunk vectors + `$vectorSearch` | `src/rag/vector_store.py` |
-| Retriever + cache | `src/rag/retriever.py` |
-| Hypothesis-driven fits | `src/modeling/engine.py` |
-| Fit → validate → best model | `src/modeling/runner.py` |
-| Residual / VIF / CV tests | `src/validation/validator.py` |
-| Regime clustering / changepoints | `src/agents/data_intelligence.py` |
-| Screening grids | `src/pipeline/automated_screening.py` |
-| OLS/Ridge + lit ranking | `src/pipeline/screening_grounded.py` |
-| MoR / grouped FE (standalone) | `src/modeling/mixture_of_regressions.py`, `src/modeling/grouped_fixed_effects.py` |
+PFAS-ARIA includes several model families, but they do not all play the same role. Some are the primary models used for the screening UI; some are available in the fuller agentic hypothesis pipeline; others are auxiliary models used for robustness comparisons.
+
+### Screening Models
+
+These are the models most directly involved in the screening-first workflow.
+
+
+| Model                     | Purpose                                                                                 | Main statistical output                                            | Robustness checks                                                                                                    |
+| ------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| Ordinary least squares    | Default interpretable screening model.                                                  | Coefficients, p-values, R2, adjusted R2, residuals.                | Heteroscedasticity, autocorrelation, residual normality, functional form, VIF, condition number, Cook's distance.    |
+| Ridge regression fallback | Stabilizes estimation when OLS is singular, poorly conditioned, or numerically fragile. | Penalized coefficients and fit score.                              | Treated as a fallback with an interpretability penalty; classical OLS p-values and assumption tests are not used.    |
+| Panel fixed effects       | Handles repeated measurements within experiments/entities when panel structure exists.  | Within-entity effect estimates, within/between R2 where available. | Intraclass correlation, stationarity fraction, within-R2, entity-count adequacy, joint significance where available. |
+
+
+The default ranking prefers interpretable OLS or panel results when they pass basic quality checks. Ridge is useful for numerical stability, but it is not treated as equally inferential because shrinkage changes the usual coefficient uncertainty interpretation.
+
+### Full Hypothesis Pipeline Models
+
+The broader agentic pipeline can fit additional model families.
+
+
+| Model                              | Purpose                                                                      | Main statistical output                                                 | Robustness checks                                                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| OLS                                | Baseline parametric association model.                                       | Coefficients, p-values, residuals, fitted values, R2.                   | VIF, Shapiro-Wilk residual normality, Breusch-Pagan homoscedasticity, cross-validated R2, regime ANOVA when applicable. |
+| Fixed effects panel model          | Controls for unobserved time-invariant entity differences.                   | Within-entity estimates and panel fit statistics.                       | Panel suitability, repeated-observation adequacy, fallback to OLS if panel structure is invalid or fit fails.           |
+| Random effects panel model         | Models entity-level variation when random effects assumptions are plausible. | Random-effects estimates and panel fit statistics.                      | Same panel-index checks as fixed effects; fallback to OLS on fit failure.                                               |
+| LASSO                              | Sparse variable selection in higher-dimensional predictor sets.              | Nonzero coefficients, selected variables, cross-validated penalty.      | Cross-validation, sparsity ratio, coefficient shrinkage awareness; p-values are not treated as classical inference.     |
+| Gradient boosting regression       | Nonlinear predictive benchmark and feature-importance comparison.            | Feature importances, in-sample fit.                                     | Importance-based significance only; validation relies on predictive checks rather than linear-model assumptions.        |
+| XGBoost regression                 | Nonlinear tree model with native missing-value handling.                     | Gain/importance scores, R2-like fit summaries.                          | Cross-validated R2 and generalization gap; negative CV R2 or large train-test gap is penalized.                         |
+| Two-stage kinetics/treatment model | Separates time-course kinetics from between-treatment effects.               | Stage 1 within-entity kinetic fit; stage 2 treatment-level association. | Stage 1 within-R2, stage 2 R2, entity-count adequacy, underpowered stage warnings.                                      |
+
+
+The full pipeline uses these models to test structured hypotheses, not to automatically crown the most complex model as best. A nonlinear model with better fit but weak interpretability may be useful as a robustness signal without replacing the primary scientific interpretation.
+
+### Auxiliary Screening and Comparison Models
+
+Some modules also include broader automated screening or diagnostic comparisons:
+
+
+| Model                  | Role                                                      |
+| ---------------------- | --------------------------------------------------------- |
+| Elastic net            | Penalized linear comparison balancing L1 and L2 behavior. |
+| Random forest          | Nonlinear ensemble comparison for predictive signal.      |
+| RidgeCV                | Cross-validated ridge comparison in extended diagnostics. |
+| Mixture of regressions | Experimental regime/latent-class style research module.   |
+| Grouped fixed effects  | Experimental grouped-panel research module.               |
+
+
+These are not the main interpretive layer of the current results page. They are useful for sensitivity analysis, pressure tests, and future model-selection work.
+
+---
+
+## 5. Robustness Testing by Model Family
+
+Robustness is tested differently depending on the model. The system does not pretend that one diagnostic suite applies equally to OLS, penalized regression, panel models, and tree ensembles.
+
+### OLS Robustness
+
+OLS receives the most complete classical diagnostic suite because its assumptions are explicit and testable.
+
+The system checks:
+
+- **Multicollinearity:** variance inflation factor; high VIF indicates unstable coefficient estimates.
+- **Heteroscedasticity:** Breusch-Pagan style checks; failure means standard errors and p-values may be unreliable.
+- **Residual normality:** Shapiro-Wilk in the full pipeline and Jarque-Bera in screening diagnostics.
+- **Autocorrelation:** Durbin-Watson in screening diagnostics.
+- **Functional form:** RESET-style test for omitted nonlinear structure.
+- **Influential observations:** Cook's distance.
+- **Numerical conditioning:** condition number.
+- **Out-of-sample signal:** K-fold cross-validated R2 in the full validation path.
+
+A strong OLS candidate is one whose effect direction is interpretable, whose adjusted R2 is meaningful, and whose diagnostics do not show severe fragility.
+
+### Ridge Robustness
+
+Ridge is used when OLS is unstable. Its robustness value is numerical stability under multicollinearity or near-singular design matrices.
+
+However, ridge changes the estimand by shrinking coefficients. Therefore:
+
+- ridge coefficients are useful for ranking and directional comparison
+- ridge p-values are not treated as valid classical inference
+- ridge receives an interpretability penalty in diagnostics
+- a ridge-only result should usually be followed by a clearer confirmatory model
+
+### Panel Model Robustness
+
+Panel models are robust only if the data actually support a panel interpretation.
+
+The system checks:
+
+- whether entity and time structure exist
+- whether there are enough repeated observations
+- whether predictors vary within entities
+- intraclass correlation, to assess whether entity effects matter
+- stationarity fraction for within-entity series where applicable
+- within-R2 and between-R2
+- number of entities, because too few entities make panel estimates fragile
+
+If panel structure is inadequate or the panel model fails, the system falls back to simpler regression rather than forcing a panel interpretation.
+
+### LASSO Robustness
+
+LASSO is tested as a sparse-selection model, not as a classical inference model.
+
+The system checks:
+
+- cross-validated fit
+- number of nonzero coefficients
+- sparsity ratio
+- whether selected variables remain scientifically interpretable
+
+Because LASSO performs variable selection and shrinkage simultaneously, its selected coefficients should be treated as screening evidence. They are not a substitute for post-selection inference.
+
+### Gradient Boosting and XGBoost Robustness
+
+Tree ensembles are used to detect nonlinear predictive structure and compare variable importance against linear models.
+
+The system checks:
+
+- cross-validated R2 where available
+- generalization gap between in-sample and cross-validated performance
+- whether feature importance is concentrated in plausible variables
+- whether the model appears to overfit
+
+For XGBoost, a large generalization gap is penalized. Negative cross-validated R2 is a warning that the model may not generalize beyond the fitted sample.
+
+Tree-based importances are not p-values. They indicate predictive contribution, not a signed mechanistic effect.
+
+### Two-Stage Model Robustness
+
+The two-stage model is used when the data have a kinetic structure that should be separated from treatment-level differences.
+
+The robustness checks are:
+
+- Stage 1 within-R2: whether time explains meaningful within-entity degradation behavior.
+- Stage 2 R2: whether treatment-level predictors explain the derived kinetic summaries.
+- Entity count: whether enough independent experimental entities exist for stage 2.
+
+If there are too few entities, the model can still run, but the treatment-stage interpretation is marked as underpowered.
+
+### Regime Robustness
+
+Across model families, regime structure is treated as a major robustness concern.
+
+The system asks:
+
+- does the relationship persist within a regime rather than only globally?
+- do outcomes differ meaningfully across regimes?
+- does a predictor matter only because it proxies for regime membership?
+- are there enough observations inside each regime?
+
+Regime-specific screening is therefore preferred for heterogeneous experimental datasets.
+
+---
+
+## 6. Ranking Evidence
+
+A candidate relationship is not ranked by R2 alone. The ranking combines three broad evidence classes:
+
+```text
+statistical fit x diagnostic credibility x literature resemblance
+```
+
+### Fit Quality
+
+Fit quality includes R2, adjusted R2, observation count, coefficient estimates, and significance information where available. Adjusted R2 is important because the system compares models with different numbers of predictors.
+
+High R2 alone is not sufficient. A model can fit well because it is over-specified, unstable, or dominated by a small number of observations.
+
+### Diagnostic Credibility
+
+Diagnostics are used to penalize candidates that look statistically fragile. Depending on the model family and data shape, checks may include:
+
+- multicollinearity
+- residual behavior
+- heteroscedasticity
+- influential observations
+- condition number
+- panel structure quality
+- within-entity versus between-entity explanatory power
+- basic cross-validated performance
+
+The diagnostic score is not a formal acceptance theorem. It is a practical ranking signal that helps keep obviously brittle candidates from dominating the results.
+
+### Literature Resemblance
+
+The literature score asks whether the candidate relationship resembles concepts or mechanisms found in the uploaded corpus or external scientific sources.
+
+For example, a candidate involving plasma treatment, chain length, fluoride release, or electrochemical degradation is converted into a mechanism-style search query. That query is compared against embedded literature chunks and external paper metadata.
+
+Literature resemblance is not treated as proof. It is used to distinguish between:
+
+- statistically strong and literature-consistent candidates
+- statistically strong but weakly grounded candidates
+- literature-suggested relationships not well covered by the uploaded data
+
+---
+
+## 7. Embedding-Based Literature Grounding
+
+The system uses pretrained sentence embeddings to compare candidate hypotheses with scientific text. Text chunks and queries are embedded into a shared vector space. Similarity is computed using normalized vector dot products, equivalent to cosine similarity.
+
+This supports semantic matching rather than exact keyword matching. A candidate can match literature even if the wording differs, as long as the meaning is close.
+
+The grounding layer searches:
+
+- uploaded corpus chunks
+- external scientific metadata where available
+- citation titles and abstracts/snippets
+
+The embedding model is used only for inference. No corpus-specific fine-tuning is performed.
+
+Important limitation: semantic similarity measures resemblance, not agreement. A high-similarity paper may discuss the same mechanism, but it may support, qualify, or contradict the observed relationship. The system therefore presents literature matches as context, not as automatic validation.
+
+---
+
+## 8. Interpretation of Coefficients
+
+For linear models, coefficient signs are interpreted as directional associations conditional on the included predictors:
+
+- positive coefficient: higher predictor values are associated with higher outcome values
+- negative coefficient: higher predictor values are associated with lower outcome values
+
+The scientific meaning depends on the outcome. For example, a positive effect on fluoride release may suggest stronger defluorination, while a positive effect on final PFAS concentration may indicate poorer degradation.
+
+The system does not assume that all positive coefficients are beneficial. Outcome semantics must be interpreted by the scientist.
+
+Categorical variables may be encoded numerically during upload cleanup. Encoded coefficients should be interpreted cautiously unless the encoding map is inspected. A categorical code is a modeling convenience, not necessarily an ordinal physical scale.
+
+---
+
+## 9. Validation and Robustness
+
+The full hypothesis pipeline applies post-fit validation tests to fitted model results. These include multicollinearity checks, residual normality, heteroscedasticity checks, regime-level ANOVA, cross-validated R2, and effect-size summaries.
+
+The screening-first workflow uses a lighter but broader diagnostic strategy because it evaluates many candidate models. Its purpose is to rank and triage, not to certify final inference.
+
+A candidate should be considered stronger when:
+
+- the direction and magnitude are interpretable
+- the relationship is not driven by severe multicollinearity
+- residual diagnostics are not pathological
+- the fit is not dependent on a tiny sample
+- similar signals appear across related outcomes or regimes
+- literature context is mechanistically plausible
+
+A candidate should be treated cautiously when:
+
+- the sample size is small
+- predictors are highly collinear
+- categorical encodings dominate the model
+- fit is high but diagnostics are poor
+- literature similarity is weak or only topical
+- the relationship is known to be nonlinear but only a linear approximation was fit
+
+---
+
+## 10. What the System Does Not Claim
+
+PFAS-ARIA does not claim that a screened association is causal.
+
+It does not claim that embedding similarity proves literature support.
+
+It does not claim that a single high-R2 model identifies a degradation mechanism.
+
+It does not claim that encoded categorical variables are physical continuous quantities.
+
+It does not train or fine-tune embedding models on the user's dataset.
+
+The intended claim is narrower:
+
+> Given this dataset and literature corpus, these candidate relationships are statistically notable, diagnostically more credible than alternatives, and more or less aligned with relevant scientific text.
+
+---
+
+## 11. How to Read the Output
+
+The ranked hypotheses should be treated as a shortlist for expert review.
+
+For each candidate, inspect:
+
+1. Sample size and regime definition.
+2. Outcome semantics.
+3. Included predictors and possible omitted variables.
+4. Coefficient signs and magnitudes.
+5. p-values or importance measures, depending on model family.
+6. R2 and adjusted R2.
+7. Diagnostic warnings.
+8. Whether literature matches are mechanistic or merely topical.
+9. Whether the relationship should be tested with a more specific model.
+
+Good next steps may include:
+
+- fitting a pre-specified confirmatory model
+- testing nonlinear transformations
+- adding interaction terms suggested by chemistry
+- comparing within-regime and across-regime effects
+- using mixed-effects models when repeated-measure structure is strong
+- validating against held-out experiments
+- checking whether literature-supported mechanisms hold for the specific PFAS class in the dataset
+
+---
+
+## 12. Practical Modeling Philosophy
+
+The system favors transparent, inspectable models at the screening stage. That is a deliberate choice.
+
+PFAS degradation datasets are often small, heterogeneous, and experimentally structured. In that setting, a large predictive model may produce a better black-box score while offering less scientific value. The workflow therefore emphasizes:
+
+- many simple candidate tests
+- regime-specific analysis
+- explicit diagnostics
+- literature grounding
+- clear separation between computed evidence and downstream explanation
+
+The result is not an automated final conclusion. It is a structured evidence map that helps scientists decide where deeper statistical and mechanistic work should focus.
