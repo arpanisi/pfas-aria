@@ -26,6 +26,42 @@ from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+DERIVED_ENTITY_COL = "_derived_entity_id"
+
+
+def add_derived_entity_column(
+    df: pd.DataFrame,
+    input_columns: list[str],
+    time_col: str | None = None,
+) -> str | None:
+    """
+    Derive true experimental entities from unique input combinations and add
+    the result as a new column ``DERIVED_ENTITY_COL`` in df (in-place).
+
+    Returns the column name on success, or None if no valid input columns exist.
+
+    This is a thin public wrapper around DatasetDetector._derive_entity_from_input_combinations
+    so callers (e.g. automated_screening.py) can enrich a df without running the full
+    detect() pipeline.
+    """
+    input_cols = [c for c in input_columns if c in df.columns and c != time_col]
+    if not input_cols:
+        return None
+
+    def _row_key(row: pd.Series) -> tuple:
+        return tuple("__NA__" if pd.isna(v) else v for v in row)
+
+    entity_ids, _ = pd.factorize(df[input_cols].apply(_row_key, axis=1))
+    n_entities = int(pd.Series(entity_ids).nunique())
+    df[DERIVED_ENTITY_COL] = entity_ids
+    logger.info(
+        "Derived %d true experimental entities from %d input columns",
+        n_entities,
+        len(input_cols),
+    )
+    return DERIVED_ENTITY_COL
+
+
 # PFCA chain-length column patterns
 PFCA_PATTERNS = ["c2", "c3", "c4", "c5", "c6", "c7", "c8"]
 PFCA_LONG_CHAIN = ["c6", "c7", "c8"]
@@ -84,9 +120,10 @@ class DatasetProfile:
     # Active outputs
     active_outputs: list[ActiveOutput]
 
-    # Active predictors (non-constant across experiments)
-    active_predictors: list[str]
-    constant_predictors: list[str]  # excluded — same value everywhere
+    # Predictor classification
+    active_predictors: list[str]       # vary within AND between entities
+    constant_predictors: list[str]     # no variation — excluded everywhere
+    between_entity_predictors: list[str]  # vary only between entities — absorbed by FE
 
     # Detected inflection — used to split early vs late stage models
     split_timepoint: float | None
@@ -109,7 +146,8 @@ class DatasetProfile:
         ]
         for o in self.active_outputs:
             lines.append(f"  {o.name} [{o.modeling_approach}] — {o.rationale}")
-        lines.append(f"Active predictors: {self.active_predictors[:8]}")
+        lines.append(f"Active predictors (within+between): {self.active_predictors[:8]}")
+        lines.append(f"Between-entity predictors (absorbed by FE): {self.between_entity_predictors[:8]}")
         if self.split_timepoint:
             lines.append(f"Detected inflection at: {self.split_timepoint} min")
         return "\n".join(lines)
@@ -123,18 +161,45 @@ class DatasetDetector:
 
     MIN_VARIANCE = 1e-6
     MIN_NONZERO_FRACTION = 0.1
+    # Minimum fraction of total variance that must come from within-entity variation
+    # for a predictor to contribute to entity fixed-effects (same concept as MIN_VARIANCE
+    # but applied to the within-entity dimension of panel data).
+    MIN_WITHIN_FRACTION = 0.05
 
     def detect(
         self,
         df: pd.DataFrame,
         outcome_variable: str,
         feature_columns: list[str],
+        input_columns: list[str] | None = None,
     ) -> DatasetProfile:
-        """Run full detection pipeline. Returns DatasetProfile."""
+        """
+        Run full detection pipeline. Returns DatasetProfile.
+
+        Args:
+            df: The experimental dataset.
+            outcome_variable: Name of the target column.
+            feature_columns: All usable predictors (excludes outcome, entity, time).
+            input_columns: Declared experimental input design columns. When provided,
+                entity derivation uses these instead of all feature_columns, which
+                avoids spuriously splitting entities on time-varying output columns.
+        """
         logger.info("Dataset detection starting...")
 
+        # Work on a local copy so we can add the derived entity column
+        # without mutating the caller's dataframe.
+        df = df.copy()
+
         time_col = self._detect_time_column(df)
-        entity_col = self._detect_entity_column(df)
+
+        # Change 1: derive true experimental entities from unique input combinations
+        # rather than keyword-matching a column name. This correctly identifies
+        # e.g. 79 distinct runs in a dataset where a "condition" column shows only 23.
+        cols_for_entity = input_columns if input_columns is not None else feature_columns
+        entity_col = self._derive_entity_from_input_combinations(
+            df, cols_for_entity, time_col
+        )
+
         is_panel = self._check_panel_structure(df, time_col, entity_col)
         n_timepoints = df[time_col].nunique() if time_col else 1
         n_entities = df[entity_col].nunique() if entity_col else len(df)
@@ -143,8 +208,8 @@ class DatasetDetector:
         has_pfca = len(pfca_cols) >= 2
         parent = self._detect_parent_compound(df, pfca_cols) if has_pfca else None
 
-        active_predictors, constant_predictors = self._split_predictors(
-            df, feature_columns, entity_col, time_col
+        active_predictors, constant_predictors, between_entity_predictors = (
+            self._split_predictors(df, feature_columns, entity_col, time_col)
         )
 
         active_outputs = self._detect_active_outputs(
@@ -178,6 +243,7 @@ class DatasetDetector:
             active_outputs=active_outputs,
             active_predictors=active_predictors,
             constant_predictors=constant_predictors,
+            between_entity_predictors=between_entity_predictors,
             split_timepoint=inflection,
         )
 
@@ -199,21 +265,43 @@ class DatasetDetector:
                 return str(col)
         return None
 
-    def _detect_entity_column(self, df: pd.DataFrame) -> str | None:
-        """Find the entity/experiment ID column."""
-        candidates = [
-            c
-            for c in df.columns
-            if any(
-                kw in c.lower()
-                for kw in ["id", "experiment", "run", "sample", "entity"]
-            )
+    def _derive_entity_from_input_combinations(
+        self,
+        df: pd.DataFrame,
+        feature_columns: list[str],
+        time_col: str | None,
+    ) -> str | None:
+        """
+        Derive true experimental entities by factorizing unique input combinations.
+
+        Experimental entity = one unique set of input conditions applied to a sample.
+        Deriving it from raw column values rather than a declared ID column avoids
+        the common case where one "condition" label aggregates multiple distinct runs
+        (e.g. replicates with slightly different parameters).
+
+        Adds a synthetic column "_derived_entity_id" to df (caller's copy) and returns
+        its name, so all downstream groupby operations work unchanged.
+        """
+        input_cols = [
+            c for c in feature_columns if c in df.columns and c != time_col
         ]
-        for col in candidates:
-            if df[col].nunique() > 1:
-                logger.debug(f"Entity column detected: {col}")
-                return str(col)
-        return None
+        if not input_cols:
+            logger.warning("No input columns available for entity derivation; entity unknown.")
+            return None
+
+        def _row_key(row: pd.Series) -> tuple:
+            return tuple("__NA__" if pd.isna(v) else v for v in row)
+
+        entity_ids, _ = pd.factorize(df[input_cols].apply(_row_key, axis=1))
+        n_entities = int(pd.Series(entity_ids).nunique())
+        df[DERIVED_ENTITY_COL] = entity_ids
+
+        logger.info(
+            "Derived %d true experimental entities from %d input feature combinations",
+            n_entities,
+            len(input_cols),
+        )
+        return DERIVED_ENTITY_COL
 
     def _check_panel_structure(
         self, df: pd.DataFrame, time_col: str | None, entity_col: str | None
@@ -280,25 +368,60 @@ class DatasetDetector:
         feature_columns: list[str],
         entity_col: str | None,
         time_col: str | None,
-    ) -> tuple[list[str], list[str]]:
+    ) -> tuple[list[str], list[str], list[str]]:
         """
-        Split feature columns into active (vary across experiments)
-        and constant (same value everywhere — useless as predictors).
+        Split feature columns into three categories:
+
+        - active: varies both within and between entities — useful for all models
+        - between_entity: varies only between entities (within-fraction < MIN_WITHIN_FRACTION)
+          — informative for cross-sectional OLS but absorbed by entity fixed-effects
+        - constant: no variation anywhere — useless as a predictor
+
+        The within-entity variance fraction (within_var / total_var) is the
+        mathematically principled criterion for whether a predictor contributes
+        to within-R² in panel fixed-effects models.
         """
         exclude = {entity_col, time_col}
-        active, constant = [], []
+        active, between_entity, constant = [], [], []
+
         for col in feature_columns:
             if col in exclude or col not in df.columns:
                 continue
-            variance = df[col].var() if pd.api.types.is_numeric_dtype(df[col]) else None
-            if variance is not None and variance < self.MIN_VARIANCE:
+
+            if not pd.api.types.is_numeric_dtype(df[col]):
+                if df[col].nunique() <= 1:
+                    constant.append(col)
+                else:
+                    # Categorical with multiple values: treat as between-entity
+                    # (no within-variance concept applies)
+                    between_entity.append(col)
+                continue
+
+            total_var = float(df[col].var())
+            if total_var < self.MIN_VARIANCE or df[col].nunique() <= 1:
                 constant.append(col)
-            elif df[col].nunique() <= 1:
-                constant.append(col)
+                continue
+
+            # Within-entity variance fraction
+            if entity_col and entity_col in df.columns:
+                entity_means = df.groupby(entity_col)[col].transform("mean")
+                within_var = float((df[col] - entity_means).var())
+                within_fraction = within_var / total_var
+            else:
+                within_fraction = 1.0  # no entity structure → treat all as active
+
+            if within_fraction < self.MIN_WITHIN_FRACTION:
+                between_entity.append(col)
             else:
                 active.append(col)
-        logger.debug(f"Predictors: {len(active)} active, {len(constant)} constant")
-        return active, constant
+
+        logger.debug(
+            "Predictors: %d active, %d between-entity, %d constant",
+            len(active),
+            len(between_entity),
+            len(constant),
+        )
+        return active, constant, between_entity
 
     def _detect_active_outputs(
         self,

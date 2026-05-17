@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useDropzone } from "react-dropzone";
 import toast from "react-hot-toast";
 import { useAutomatedScreeningIteration, useUploadDataset } from "@/hooks/usePipeline";
+import { apiErrorMessage } from "@/api/client";
 import { inferDomainContext } from "@/api/endpoints";
 import {
   clearNewRunDraft,
@@ -181,12 +182,20 @@ export function NewRun() {
       const p = await upload(files[0]);
       applyPreviewFromUpload(p);
       toast.success(`Loaded ${p.n_rows.toLocaleString()} rows`);
-    } catch { toast.error("Upload failed"); }
+    } catch (error) {
+      toast.error(apiErrorMessage(error, "Upload failed"));
+    }
   }, [upload, applyPreviewFromUpload]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { "text/csv": [".csv"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"], "text/tab-separated-values": [".tsv"] },
+    onDropRejected: () => toast.error("Use a CSV, TSV, XLS, or XLSX dataset."),
+    accept: {
+      "text/csv": [".csv"],
+      "text/tab-separated-values": [".tsv"],
+      "application/vnd.ms-excel": [".xls"],
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+    },
     maxFiles: 1,
     disabled: uploading,
   });

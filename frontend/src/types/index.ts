@@ -130,6 +130,110 @@ export interface Hypothesis {
   is_refinement: boolean;
 }
 
+export interface ModelDiagnostics {
+  model_family: string;
+  diagnostic_score: number;
+  passed_tests: string[];
+  failed_tests: string[];
+  warnings: string[];
+  // OLS overall model
+  f_statistic: number | null;
+  f_pvalue: number | null;
+  df_model: number | null;
+  df_resid: number | null;
+  // OLS assumption tests
+  breusch_pagan_p: number | null;
+  durbin_watson: number | null;
+  jarque_bera_p: number | null;
+  reset_p: number | null;
+  max_vif: number | null;
+  condition_number: number | null;
+  max_cooks_d: number | null;
+  aic: number | null;
+  bic: number | null;
+  // Panel
+  within_r2: number | null;
+  between_r2: number | null;
+  icc: number | null;
+  adf_stationary_fraction: number | null;
+  n_entities: number | null;
+  // XGBoost
+  cv_r2: number | null;
+  generalization_gap: number | null;
+  // Two-stage
+  stage1_within_r2: number | null;
+  stage2_r2: number | null;
+  // LASSO
+  n_nonzero_coefs: number | null;
+  cv_r2_lasso: number | null;
+}
+
+export interface ExtendedOLSDiagnostics {
+  n_obs?: number;
+  n_predictors?: number;
+  obs_per_predictor?: number | null;
+  rmse?: number | null;
+  mae?: number | null;
+  mape?: number | null;
+  y_std?: number | null;
+  cv_r2?: number | null;
+  cv_r2_std?: number | null;
+  n_influential?: number;
+  n_high_leverage?: number;
+  max_studentized?: number | null;
+  breusch_godfrey_p?: number | null;
+  white_p?: number | null;
+  aic?: number | null;
+  bic?: number | null;
+  standardized_betas?: Record<string, number | null>;
+  error?: string;
+}
+
+export interface ExtendedPanelDiagnostics {
+  n_obs?: number;
+  n_entities?: number;
+  min_obs_per_entity?: number;
+  max_obs_per_entity?: number;
+  mean_obs_per_entity?: number | null;
+  balanced?: boolean;
+  rmse?: number | null;
+  mae?: number | null;
+  y_std?: number | null;
+  within_r2?: number | null;
+  between_r2?: number | null;
+  overall_r2?: number | null;
+  f_statistic?: number | null;
+  f_pvalue?: number | null;
+  aic?: number | null;
+  bic?: number | null;
+  hausman_stat?: number | null;
+  hausman_p?: number | null;
+  fe_necessary?: boolean;
+  error?: string;
+  fit_error?: string;
+  hausman_error?: string;
+}
+
+export interface AdditionalFamilyDiagnostics {
+  xgboost?: Record<string, unknown>;
+  lasso?: Record<string, unknown>;
+  ridge?: Record<string, unknown>;
+  two_stage?: Record<string, unknown>;
+  error?: string;
+}
+
+export interface BundleDiagnostics {
+  ols: ModelDiagnostics | null;
+  panel: ModelDiagnostics | null;
+  screening_model_class?: "time_only" | "time_plus_parameter" | "parameter_only" | string;
+  extended?: {
+    ols?: ExtendedOLSDiagnostics | null;
+    panel?: ExtendedPanelDiagnostics | null;
+  };
+  additional_families?: AdditionalFamilyDiagnostics;
+  overall_robustness_score?: number;
+}
+
 export interface ModelResult {
   id: string;
   hypothesis_id: string;
@@ -142,6 +246,7 @@ export interface ModelResult {
   significant_variables: string[];
   match_score: number;
   validation_passed: boolean;
+  diagnostic_score?: number;
 }
 
 export interface Citation {
@@ -167,6 +272,7 @@ export interface ScreeningStatsRequest {
 export interface ScreeningStatsBundle {
   hypothesis: Hypothesis;
   model_result: ModelResult;
+  diagnostics?: BundleDiagnostics;
 }
 
 export interface ScreeningStatsResponse {

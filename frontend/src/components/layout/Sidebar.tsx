@@ -4,6 +4,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "@/store/theme";
 import { useDropzone } from "react-dropzone";
 import toast from "react-hot-toast";
+import { apiErrorMessage } from "@/api/client";
 import { deleteRun, uploadDataset, uploadPaper } from "@/api/endpoints";
 import { clearNewRunDraft, DRAFT_CHANGED_EVENT, loadNewRunDraft } from "@/lib/newRunDraft";
 
@@ -42,8 +43,8 @@ export function Sidebar() {
       const preview = await uploadDataset(files[0]);
       toast.success(`${files[0].name} uploaded`);
       navigate("/upload", { state: { preview } });
-    } catch {
-      toast.error("Upload failed");
+    } catch (error) {
+      toast.error(apiErrorMessage(error, "Upload failed"));
     }
   }, [navigate]);
 
@@ -52,17 +53,31 @@ export function Sidebar() {
       try {
         await uploadPaper(f);
         toast.success(`${f.name} added to corpus`);
-      } catch {
-        toast.error(`Failed: ${f.name}`);
+      } catch (error) {
+        toast.error(`${f.name}: ${apiErrorMessage(error, "Upload failed")}`);
       }
     }
   }, []);
 
   const { getRootProps: getDataProps, getInputProps: getDataInput, isDragActive: dataDrag } =
-    useDropzone({ onDrop: onDropData, accept: { "text/csv": [".csv"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] }, maxFiles: 1 });
+    useDropzone({
+      onDrop: onDropData,
+      onDropRejected: () => toast.error("Use a CSV, TSV, XLS, or XLSX dataset."),
+      accept: {
+        "text/csv": [".csv"],
+        "text/tab-separated-values": [".tsv"],
+        "application/vnd.ms-excel": [".xls"],
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+      },
+      maxFiles: 1,
+    });
 
   const { getRootProps: getPdfProps, getInputProps: getPdfInput, isDragActive: pdfDrag } =
-    useDropzone({ onDrop: onDropCorpus, accept: { "application/pdf": [".pdf"] } });
+    useDropzone({
+      onDrop: onDropCorpus,
+      onDropRejected: () => toast.error("Use PDF files for the corpus."),
+      accept: { "application/pdf": [".pdf"] },
+    });
 
   return (
     <aside className="sidebar">

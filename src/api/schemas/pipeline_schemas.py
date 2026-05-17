@@ -125,6 +125,7 @@ class ScreeningModelOut(BaseModel):
     significant_variables: list[str]
     match_score: float
     validation_passed: bool
+    diagnostic_score: float | None = None
 
 
 class ScreeningCitationOut(BaseModel):
@@ -180,6 +181,7 @@ class ScreeningStatsIn(BaseModel):
 class ScreeningStatsBundleOut(BaseModel):
     hypothesis: ScreeningHypothesisOut
     model_result: ScreeningModelOut
+    diagnostics: dict | None = None
 
 
 class ScreeningStatsOut(BaseModel):

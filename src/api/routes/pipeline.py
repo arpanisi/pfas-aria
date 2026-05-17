@@ -865,6 +865,7 @@ async def screening_stats(
         ScreeningStatsBundleOut(
             hypothesis=ScreeningHypothesisOut(**b["hypothesis"]),
             model_result=ScreeningModelOut(**b["model_result"]),
+            diagnostics=b.get("diagnostics"),
         )
         for b in raw.get("bundles", [])
     ]
