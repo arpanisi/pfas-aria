@@ -114,7 +114,9 @@ class ModelingEngine:
                     f"on {regime_label} (n={len(regime_df)})"
                 )
                 if hypothesis.model_family == "two_stage":
-                    results.extend(self._fit_two_stage(hypothesis, regime_df, label=regime_label))
+                    results.extend(
+                        self._fit_two_stage(hypothesis, regime_df, label=regime_label)
+                    )
                 else:
                     results.append(self._fit(hypothesis, regime_df, label=regime_label))
 
@@ -489,12 +491,13 @@ class ModelingEngine:
         adj_r2 = float(1 - (1 - r2) * (n - 1) / (n - p - 1)) if n > p + 1 else r2
 
         importance = {
-            col: float(imp)
-            for col, imp in zip(used_cols, model.feature_importances_)
+            col: float(imp) for col, imp in zip(used_cols, model.feature_importances_)
         }
         # Top third by importance treated as "significant" (no p-values from XGBoost)
         top_k = max(1, len(used_cols) // 3)
-        significant = sorted(importance, key=lambda k: importance[k], reverse=True)[:top_k]
+        significant = sorted(importance, key=lambda k: importance[k], reverse=True)[
+            :top_k
+        ]
 
         return ModelResult(
             hypothesis_id=f"{hypothesis.id}_{label}",
@@ -561,7 +564,9 @@ class ModelingEngine:
             return [self._error_result(hypothesis, f"Outcome {outcome!r} not in df")]
 
         # Derive entity column from all hypothesis-specified features minus time
-        all_vars = list(dict.fromkeys(hypothesis.primary_variables + hypothesis.control_variables))
+        all_vars = list(
+            dict.fromkeys(hypothesis.primary_variables + hypothesis.control_variables)
+        )
         input_cols = [c for c in all_vars if c in df.columns and c != time_col]
         if not input_cols:
             input_cols = [c for c in df.columns if c not in {time_col, outcome}]
@@ -569,13 +574,19 @@ class ModelingEngine:
         df = df.copy()
         entity_col = add_derived_entity_column(df, input_cols, time_col)
         if entity_col is None:
-            return [self._error_result(hypothesis, "Could not derive entity column for two_stage")]
+            return [
+                self._error_result(
+                    hypothesis, "Could not derive entity column for two_stage"
+                )
+            ]
 
         results: list[ModelResult] = []
 
         try:
             results.append(
-                self._fit_kinetics_stage(hypothesis, df, entity_col, time_col, outcome, label)
+                self._fit_kinetics_stage(
+                    hypothesis, df, entity_col, time_col, outcome, label
+                )
             )
         except Exception as e:
             logger.warning(f"Kinetics stage failed for {hypothesis.id}: {e}")
@@ -589,7 +600,9 @@ class ModelingEngine:
             )
         except Exception as e:
             logger.warning(f"Treatment stage failed for {hypothesis.id}: {e}")
-            results.append(self._error_result(hypothesis, f"Treatment stage error: {e}"))
+            results.append(
+                self._error_result(hypothesis, f"Treatment stage error: {e}")
+            )
 
         return results
 
@@ -616,11 +629,11 @@ class ModelingEngine:
 
         panel_df = work.set_index([entity_col, time_col])
         y_panel = panel_df[outcome]
-        X_panel = sm.add_constant(
+        x_panel = sm.add_constant(
             pd.DataFrame({"time": work[time_col].values}, index=panel_df.index)
         )
 
-        model = PanelOLS(y_panel, X_panel, entity_effects=True, drop_absorbed=True).fit(
+        model = PanelOLS(y_panel, x_panel, entity_effects=True, drop_absorbed=True).fit(
             cov_type="clustered", cluster_entity=True
         )
 
@@ -667,7 +680,7 @@ class ModelingEngine:
         """Cross-sectional OLS on run-level AUC using between-entity design variables."""
         import statsmodels.api as sm
 
-        MIN_WITHIN_FRACTION = 0.05
+        min_within_fraction = 0.05
 
         # Identify between-entity features (within-fraction < 5% → not absorbed by FE)
         between_cols: list[str] = []
@@ -681,11 +694,13 @@ class ModelingEngine:
             # Group on the numeric-coerced series to avoid object-dtype transform errors
             entity_means = s.groupby(df[entity_col]).transform("mean")
             within_var = float((s - entity_means).var())
-            if within_var / total_var < MIN_WITHIN_FRACTION:
+            if within_var / total_var < min_within_fraction:
                 between_cols.append(col)
 
         if not between_cols:
-            raise ModelingError("No between-entity features available for treatment stage")
+            raise ModelingError(
+                "No between-entity features available for treatment stage"
+            )
 
         # Aggregate to run level: AUC (trapezoidal) per entity
         run_records: list[dict] = []
@@ -719,15 +734,19 @@ class ModelingEngine:
         if len(work) < len(dense_cols) + 3:
             raise ModelingError(f"Too few runs for treatment stage: {len(work)}")
 
-        X = sm.add_constant(work[dense_cols].astype(float))
+        x_design = sm.add_constant(work[dense_cols].astype(float))
         y = work["_auc"].astype(float)
-        model = sm.OLS(y, X).fit()
+        model = sm.OLS(y, x_design).fit()
 
         params = {k: float(v) for k, v in model.params.items() if k != "const"}
         pvals = {k: float(v) for k, v in model.pvalues.items() if k != "const"}
         bse = {k: float(v) for k, v in model.bse.items() if k != "const"}
         ci_raw = model.conf_int()
-        ci = {k: (float(ci_raw.loc[k, 0]), float(ci_raw.loc[k, 1])) for k in params if k in ci_raw.index}
+        ci = {
+            k: (float(ci_raw.loc[k, 0]), float(ci_raw.loc[k, 1]))
+            for k in params
+            if k in ci_raw.index
+        }
 
         return ModelResult(
             hypothesis_id=f"{hypothesis.id}_{label}_treatment",

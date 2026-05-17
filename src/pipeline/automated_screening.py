@@ -256,9 +256,7 @@ def run_automated_screening_iteration(
     # This correctly identifies e.g. 79 distinct runs where "condition" shows only 23.
     if unified_meta is not None and unified_meta.input_cols:
         time_col = str(unified_meta.time_col) if unified_meta.time_col else None
-        exp_col = add_derived_entity_column(
-            df, list(unified_meta.input_cols), time_col
-        )
+        exp_col = add_derived_entity_column(df, list(unified_meta.input_cols), time_col)
     else:
         exp_col, time_col = _detect_panel_columns(df)
 

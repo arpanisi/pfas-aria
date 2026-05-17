@@ -121,8 +121,8 @@ class DatasetProfile:
     active_outputs: list[ActiveOutput]
 
     # Predictor classification
-    active_predictors: list[str]       # vary within AND between entities
-    constant_predictors: list[str]     # no variation — excluded everywhere
+    active_predictors: list[str]  # vary within AND between entities
+    constant_predictors: list[str]  # no variation — excluded everywhere
     between_entity_predictors: list[str]  # vary only between entities — absorbed by FE
 
     # Detected inflection — used to split early vs late stage models
@@ -146,8 +146,12 @@ class DatasetProfile:
         ]
         for o in self.active_outputs:
             lines.append(f"  {o.name} [{o.modeling_approach}] — {o.rationale}")
-        lines.append(f"Active predictors (within+between): {self.active_predictors[:8]}")
-        lines.append(f"Between-entity predictors (absorbed by FE): {self.between_entity_predictors[:8]}")
+        lines.append(
+            f"Active predictors (within+between): {self.active_predictors[:8]}"
+        )
+        lines.append(
+            f"Between-entity predictors (absorbed by FE): {self.between_entity_predictors[:8]}"
+        )
         if self.split_timepoint:
             lines.append(f"Detected inflection at: {self.split_timepoint} min")
         return "\n".join(lines)
@@ -195,7 +199,9 @@ class DatasetDetector:
         # Change 1: derive true experimental entities from unique input combinations
         # rather than keyword-matching a column name. This correctly identifies
         # e.g. 79 distinct runs in a dataset where a "condition" column shows only 23.
-        cols_for_entity = input_columns if input_columns is not None else feature_columns
+        cols_for_entity = (
+            input_columns if input_columns is not None else feature_columns
+        )
         entity_col = self._derive_entity_from_input_combinations(
             df, cols_for_entity, time_col
         )
@@ -282,11 +288,11 @@ class DatasetDetector:
         Adds a synthetic column "_derived_entity_id" to df (caller's copy) and returns
         its name, so all downstream groupby operations work unchanged.
         """
-        input_cols = [
-            c for c in feature_columns if c in df.columns and c != time_col
-        ]
+        input_cols = [c for c in feature_columns if c in df.columns and c != time_col]
         if not input_cols:
-            logger.warning("No input columns available for entity derivation; entity unknown.")
+            logger.warning(
+                "No input columns available for entity derivation; entity unknown."
+            )
             return None
 
         def _row_key(row: pd.Series) -> tuple:

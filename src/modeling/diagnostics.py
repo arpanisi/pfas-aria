@@ -21,7 +21,6 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
-import statsmodels.api as sm
 from statsmodels.stats.diagnostic import het_breuschpagan
 from statsmodels.stats.outliers_influence import variance_inflation_factor as _vif
 from statsmodels.stats.stattools import durbin_watson, jarque_bera
@@ -52,32 +51,32 @@ class DiagnosticResult:
     n_predictors: int = 0
 
     # ── OLS overall model tests ───────────────────────────────────────────────
-    f_statistic: float | None = None         # F-test for joint significance
-    f_pvalue: float | None = None            # p-value for F-test
-    df_model: int | None = None              # degrees of freedom (model)
-    df_resid: int | None = None              # degrees of freedom (residual)
+    f_statistic: float | None = None  # F-test for joint significance
+    f_pvalue: float | None = None  # p-value for F-test
+    df_model: int | None = None  # degrees of freedom (model)
+    df_resid: int | None = None  # degrees of freedom (residual)
 
     # ── OLS assumption tests ──────────────────────────────────────────────────
     breusch_pagan_stat: float | None = None  # LM statistic
-    breusch_pagan_p: float | None = None     # >0.05 → homoscedastic
-    durbin_watson: float | None = None       # ~2 → no autocorrelation
+    breusch_pagan_p: float | None = None  # >0.05 → homoscedastic
+    durbin_watson: float | None = None  # ~2 → no autocorrelation
     jarque_bera_stat: float | None = None
-    jarque_bera_p: float | None = None       # >0.05 → normal residuals
+    jarque_bera_p: float | None = None  # >0.05 → normal residuals
     reset_stat: float | None = None
-    reset_p: float | None = None             # >0.05 → correct functional form
-    max_vif: float | None = None             # <5 → low multicollinearity
-    condition_number: float | None = None    # <30 → acceptable conditioning
-    max_cooks_d: float | None = None         # <4/n → no influential outliers
+    reset_p: float | None = None  # >0.05 → correct functional form
+    max_vif: float | None = None  # <5 → low multicollinearity
+    condition_number: float | None = None  # <30 → acceptable conditioning
+    max_cooks_d: float | None = None  # <4/n → no influential outliers
 
     # ── Panel-specific ────────────────────────────────────────────────────────
     within_r2: float | None = None
     between_r2: float | None = None
-    icc: float | None = None                 # intraclass correlation coefficient
+    icc: float | None = None  # intraclass correlation coefficient
     adf_stationary_fraction: float | None = None  # fraction of vars passing ADF
-    n_entities: int | None = None            # number of unique entities in panel
+    n_entities: int | None = None  # number of unique entities in panel
 
     # ── XGBoost-specific ──────────────────────────────────────────────────────
-    cv_r2: float | None = None               # mean cross-validation R²
+    cv_r2: float | None = None  # mean cross-validation R²
     generalization_gap: float | None = None  # in_sample_r2 − cv_r2; lower = better
 
     # ── Two-stage-specific ────────────────────────────────────────────────────
@@ -89,7 +88,7 @@ class DiagnosticResult:
     cv_r2_lasso: float | None = None
 
     # ── Composite ─────────────────────────────────────────────────────────────
-    diagnostic_score: float = 0.5            # 0–1; higher → more interpretable
+    diagnostic_score: float = 0.5  # 0–1; higher → more interpretable
     passed_tests: list[str] = field(default_factory=list)
     failed_tests: list[str] = field(default_factory=list)
     diagnostic_warnings: list[str] = field(default_factory=list)
@@ -139,7 +138,7 @@ class DiagnosticResult:
 
 
 def diagnose_ols(
-    fitted_res,        # statsmodels OLSResults object
+    fitted_res,  # statsmodels OLSResults object
     x_mat: np.ndarray,  # design matrix WITHOUT constant, shape (n, k)
     names: list[str],
 ) -> DiagnosticResult:
@@ -237,11 +236,15 @@ def diagnose_ols(
 def _ols_composite(diag: DiagnosticResult) -> float:
     """Weighted composite of OLS assumption tests. Missing tests are excluded."""
     checks = [
-        (diag.breusch_pagan_p,  lambda p: p > 0.05,          0.28),  # invalid p-values = critical
-        (diag.durbin_watson,    lambda dw: 1.5 < dw < 2.5,   0.22),  # serial corr in residuals
-        (diag.max_vif,          lambda v: v < 5.0,            0.22),  # inflated std errors
-        (diag.jarque_bera_p,    lambda p: p > 0.05,           0.15),  # OLS inference validity
-        (diag.reset_p,          lambda p: p > 0.05,           0.13),  # functional form
+        (diag.breusch_pagan_p, lambda p: p > 0.05, 0.28),  # invalid p-values = critical
+        (
+            diag.durbin_watson,
+            lambda dw: 1.5 < dw < 2.5,
+            0.22,
+        ),  # serial corr in residuals
+        (diag.max_vif, lambda v: v < 5.0, 0.22),  # inflated std errors
+        (diag.jarque_bera_p, lambda p: p > 0.05, 0.15),  # OLS inference validity
+        (diag.reset_p, lambda p: p > 0.05, 0.13),  # functional form
     ]
     total_w = weighted_pass = 0.0
     for value, test, weight in checks:
@@ -387,7 +390,9 @@ def diagnose_xgboost(
         else:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                cv_scores = cross_val_score(model, x_mat, y_vec, cv=n_splits, scoring="r2")
+                cv_scores = cross_val_score(
+                    model, x_mat, y_vec, cv=n_splits, scoring="r2"
+                )
             cv_r2 = float(np.mean(cv_scores))
             diag.cv_r2 = round(cv_r2, 4)
             diag.generalization_gap = round(in_sample_r2 - cv_r2, 4)

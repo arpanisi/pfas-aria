@@ -18,6 +18,7 @@ import pandas as pd
 import statsmodels.api as sm
 from sklearn.linear_model import Ridge
 
+from src.etl.experimental.detector import add_derived_entity_column
 from src.grounding.arxiv_client import ArxivClient
 from src.grounding.crossref_client import CrossrefClient
 from src.grounding.europe_pmc_client import EuropePMCClient
@@ -28,7 +29,6 @@ from src.ingestion.dataset_screening_layout import (
     assign_screening_layout_from_legacy_column_slices,
 )
 from src.ingestion.unified_experimental_sheet import UnifiedSheetMeta
-from src.etl.experimental.detector import add_derived_entity_column
 from src.modeling.diagnostics import (
     DiagnosticResult,
     diagnose_ols,
@@ -78,7 +78,9 @@ class _Candidate:
 
 def _fit_ols_or_ridge(
     x_mat: np.ndarray, y_vec: np.ndarray, names: list[str]
-) -> tuple[float, float, dict[str, float], dict[str, float], list[str], DiagnosticResult]:
+) -> tuple[
+    float, float, dict[str, float], dict[str, float], list[str], DiagnosticResult
+]:
     """Return r2, adj_r2, coefs (no const), pvals, significant names, diagnostic."""
     if np.std(y_vec) == 0:
         d = DiagnosticResult(model_family="ols", effective_n=len(y_vec))
@@ -114,7 +116,10 @@ def _fit_panel_ols(
     y_col: str,
     entity_col: str,
     time_col: str,
-) -> tuple[float, float, dict[str, float], dict[str, float], list[str], DiagnosticResult] | None:
+) -> (
+    tuple[float, float, dict[str, float], dict[str, float], list[str], DiagnosticResult]
+    | None
+):
     """Fit entity fixed-effects PanelOLS using the pattern from scripts/ols_vs_panel.py.
 
     Only called for pre-selected top candidates. Returns None if panel conditions
@@ -142,7 +147,11 @@ def _fit_panel_ols(
         entity_means = mdf.groupby(entity_col)[col].transform("mean")
         return float((s - entity_means).var()) / total_var
 
-    fe_cols = [c for c in x_cols if c != time_col and c in mdf.columns and _within_frac(c) >= 0.05]
+    fe_cols = [
+        c
+        for c in x_cols
+        if c != time_col and c in mdf.columns and _within_frac(c) >= 0.05
+    ]
     # Time is always a valid within-entity predictor (kinetics regressor); a time-only
     # panel model is the kinetics baseline — don't require other within-varying features.
 
@@ -151,7 +160,9 @@ def _fit_panel_ols(
         y_panel = panel_df[y_col]
 
         # Feature matrix: within-varying features + time as kinetic trend regressor
-        X_panel = panel_df[fe_cols].copy() if fe_cols else pd.DataFrame(index=panel_df.index)
+        X_panel = (
+            panel_df[fe_cols].copy() if fe_cols else pd.DataFrame(index=panel_df.index)
+        )
         X_panel[time_col] = mdf[time_col].values
         X_panel = sm.add_constant(X_panel)
 
@@ -173,7 +184,10 @@ def _fit_panel_ols(
         # time-only models where fe_cols=[].
         adf_cols = ([time_col] if time_col in mdf.columns else []) + fe_cols
         panel_d = diagnose_panel(
-            mdf, y_col, entity_col, adf_cols,
+            mdf,
+            y_col,
+            entity_col,
+            adf_cols,
             within_r2=r2_within,
             between_r2=float(fe_model.rsquared_between),
         )
@@ -186,9 +200,11 @@ def _fit_panel_ols(
         try:
             panel_d.f_statistic = round(float(fe_model.f_statistic.stat), 4)
             panel_d.f_pvalue = round(float(fe_model.f_statistic.pval), 6)
-            (panel_d.passed_tests if panel_d.f_pvalue < 0.05 else panel_d.failed_tests).append(
-                "fe_joint_significance"
-            )
+            (
+                panel_d.passed_tests
+                if panel_d.f_pvalue < 0.05
+                else panel_d.failed_tests
+            ).append("fe_joint_significance")
         except Exception:
             pass
 
@@ -208,14 +224,17 @@ def _fit_panel_ols(
                 tv = float(y_s.var())
                 if tv > 1e-9:
                     panel_d.icc = round(bv / tv, 4)
-                    (panel_d.passed_tests if panel_d.icc >= 0.10 else panel_d.failed_tests).append(
-                        "icc_adequate"
-                    )
+                    (
+                        panel_d.passed_tests
+                        if panel_d.icc >= 0.10
+                        else panel_d.failed_tests
+                    ).append("icc_adequate")
             except Exception as icc_exc:
                 logger.debug("Panel ICC fallback failed: {}", icc_exc)
 
         # Recompute composite score now that f_pvalue + n_entities + icc are set
         from src.modeling.diagnostics import _panel_composite  # noqa: PLC0415
+
         panel_d.diagnostic_score = _panel_composite(panel_d)
 
         return r2_overall, r2_within, coefs, pvals, sig, panel_d
@@ -233,11 +252,11 @@ def _effective_diagnostic_score(c: _Candidate) -> float:
     even if OLS assumptions hold. Uses geometric mean so both components must
     be healthy for a top score.
     """
-    ols_s = c.diagnostic.diagnostic_score if c.diagnostic else 0.5
+    ols_s = float(c.diagnostic.diagnostic_score) if c.diagnostic else 0.5
     if c.panel_diagnostic is None:
         return ols_s
-    panel_s = c.panel_diagnostic.diagnostic_score
-    return round((ols_s * panel_s) ** 0.5, 4)
+    panel_s = float(c.panel_diagnostic.diagnostic_score)
+    return float(round((ols_s * panel_s) ** 0.5, 4))
 
 
 def _safe_float(value: object, digits: int = 4) -> float | None:
@@ -293,7 +312,11 @@ def _ols_extended_diagnostics(
         n_splits = min(5, n // 5)
         if n_splits >= 2:
             scores = cross_val_score(
-                LinearRegression(), X.to_numpy(), y.to_numpy(), cv=n_splits, scoring="r2"
+                LinearRegression(),
+                X.to_numpy(),
+                y.to_numpy(),
+                cv=n_splits,
+                scoring="r2",
             )
             out["cv_r2"] = _safe_float(np.mean(scores))
             out["cv_r2_std"] = _safe_float(np.std(scores))
@@ -344,7 +367,12 @@ def _panel_extended_diagnostics(
     time_col: str | None,
 ) -> dict[str, object] | None:
     """Extra PanelOLS diagnostics mirrored from scripts/ols_vs_panel.py."""
-    if not entity_col or not time_col or entity_col not in df.columns or time_col not in df.columns:
+    if (
+        not entity_col
+        or not time_col
+        or entity_col not in df.columns
+        or time_col not in df.columns
+    ):
         return None
     try:
         from linearmodels.panel import PanelOLS, RandomEffects
@@ -376,7 +404,11 @@ def _panel_extended_diagnostics(
         pnl = mdf.set_index([entity_col, time_col])
         y_panel = pnl[y_col]
         panel_features = [c for c in cols if c != time_col]
-        Xp = pnl[panel_features].copy() if panel_features else pd.DataFrame(index=pnl.index)
+        Xp = (
+            pnl[panel_features].copy()
+            if panel_features
+            else pd.DataFrame(index=pnl.index)
+        )
         Xp[time_col] = mdf[time_col].values
         Xp = sm.add_constant(Xp)
         with warnings.catch_warnings():
@@ -406,7 +438,9 @@ def _panel_extended_diagnostics(
 
         try:
             re_m = RandomEffects(y_panel, Xp).fit()
-            common = [v for v in fe_m.params.index if v in re_m.params.index and v != "const"]
+            common = [
+                v for v in fe_m.params.index if v in re_m.params.index and v != "const"
+            ]
             if common:
                 b_diff = fe_m.params[common].values - re_m.params[common].values
                 Vfe = fe_m.cov.loc[common, common].values
@@ -509,7 +543,9 @@ def _additional_family_diagnostics(
             },
         }
 
-        ridge = RidgeCV(alphas=np.logspace(-3, 4, 50), cv=n_splits, scoring="r2").fit(Xz, y)
+        ridge = RidgeCV(alphas=np.logspace(-3, 4, 50), cv=n_splits, scoring="r2").fit(
+            Xz, y
+        )
         r_pred = ridge.predict(Xz)
         r_cv = cross_val_score(ridge, Xz, y, cv=n_splits, scoring="r2")
         sv = np.linalg.svd(Xz, compute_uv=False)
@@ -520,7 +556,9 @@ def _additional_family_diagnostics(
         except Exception:
             ols_norm = np.nan
         ridge_norm = float(np.linalg.norm(ridge.coef_))
-        shrinkage = 1.0 - ridge_norm / max(ols_norm, 1e-9) if np.isfinite(ols_norm) else None
+        shrinkage = (
+            1.0 - ridge_norm / max(ols_norm, 1e-9) if np.isfinite(ols_norm) else None
+        )
         out["ridge"] = {
             "selected_alpha": _safe_float(ridge.alpha_, 6),
             "effective_df": _safe_float(eff_df, 2),
@@ -528,7 +566,9 @@ def _additional_family_diagnostics(
             "shrinkage": _safe_float(shrinkage) if shrinkage is not None else None,
             "in_sample_r2": _safe_float(ridge.score(Xz, y)),
             "cv_r2": _safe_float(np.mean(r_cv)),
-            "generalization_gap": _safe_float(float(ridge.score(Xz, y)) - float(np.mean(r_cv))),
+            "generalization_gap": _safe_float(
+                float(ridge.score(Xz, y)) - float(np.mean(r_cv))
+            ),
             "rmse": _safe_float(np.sqrt(np.mean((y - r_pred) ** 2))),
             "mae": _safe_float(np.mean(np.abs(y - r_pred))),
             "condition_number": _safe_float(np.linalg.cond(X)),
@@ -552,12 +592,21 @@ def _additional_family_diagnostics(
             "stage2_n_obs": None,
             "stage2_obs_per_predictor": None,
         }
-        if entity_col and time_col and entity_col in df.columns and time_col in df.columns:
+        if (
+            entity_col
+            and time_col
+            and entity_col in df.columns
+            and time_col in df.columns
+        ):
             try:
                 treatment_cols = [c for c in cols if c != time_col]
                 stage_rows = []
                 for entity, grp in df.groupby(entity_col):
-                    g = grp[[time_col, y_col]].apply(pd.to_numeric, errors="coerce").dropna()
+                    g = (
+                        grp[[time_col, y_col]]
+                        .apply(pd.to_numeric, errors="coerce")
+                        .dropna()
+                    )
                     if g[time_col].nunique() < 2:
                         continue
                     m1 = sm.OLS(g[y_col], sm.add_constant(g[time_col])).fit()
@@ -591,7 +640,9 @@ def _additional_family_diagnostics(
                         }
                     )
                 else:
-                    two_stage["stage2_error"] = "too few entity-level observations for stage 2"
+                    two_stage["stage2_error"] = (
+                        "too few entity-level observations for stage 2"
+                    )
             except Exception as exc:
                 two_stage["stage2_error"] = str(exc)[:120]
         out["two_stage"] = two_stage
@@ -813,7 +864,9 @@ def run_screening_grounded_for_regime(
             if prep is None:
                 continue
             x_mat, y_vec = prep
-            r2, ar2, coefs, pvals, sig, ols_diag = _fit_ols_or_ridge(x_mat, y_vec, x_subset)
+            r2, ar2, coefs, pvals, sig, ols_diag = _fit_ols_or_ridge(
+                x_mat, y_vec, x_subset
+            )
             if r2 < MIN_R2:
                 continue
             # Panel augmentation: run panel diagnostics on within-entity features
@@ -848,7 +901,9 @@ def run_screening_grounded_for_regime(
         if time_col in sub_df.columns and time_col not in within_features:
             within_features = [time_col] + within_features
         for y_col in outs:
-            panel_res = _fit_panel_ols(sub_df, within_features, y_col, exp_col, time_col)
+            panel_res = _fit_panel_ols(
+                sub_df, within_features, y_col, exp_col, time_col
+            )
             if panel_res is not None:
                 r2, ar2, coefs, pvals, sig, panel_diag = panel_res
                 lit = _literature_score(retriever, y_col, within_features)
@@ -909,7 +964,9 @@ def run_screening_grounded_for_regime(
                     "description": desc,
                     "rationale": rationale,
                     "primary_variables": c.x_cols[:10],
-                    "model_family": "screening_panel_fe" if is_panel_fe else "screening_ols",
+                    "model_family": "screening_panel_fe"
+                    if is_panel_fe
+                    else "screening_ols",
                     "priority_score": round(min(1.0, c.lit_score), 4),
                     "is_refinement": False,
                 },
@@ -930,7 +987,9 @@ def run_screening_grounded_for_regime(
                 },
                 "diagnostics": {
                     "ols": c.diagnostic.to_dict() if c.diagnostic else None,
-                    "panel": c.panel_diagnostic.to_dict() if c.panel_diagnostic else None,
+                    "panel": c.panel_diagnostic.to_dict()
+                    if c.panel_diagnostic
+                    else None,
                 },
                 "citations": _citations_for_candidate(retriever, c, hid),
             }
@@ -1055,12 +1114,16 @@ def run_screening_stats_for_regime(
         subset_specs.append(cols)
 
     # Parameter-only treatment/input models: 1, 2, 3, and 4 parameter subsets.
-    for subset in _subset_iterator(param_pool, param_sizes, max_per_size=max_subsets_per_k):
+    for subset in _subset_iterator(
+        param_pool, param_sizes, max_per_size=max_subsets_per_k
+    ):
         _add_subset(subset)
 
     # Time + treatment/input models: bounded combinations with time forced in.
     if time_col and time_col in sub_df.columns:
-        for subset in _subset_iterator(param_pool, time_param_sizes, max_per_size=max_subsets_per_k):
+        for subset in _subset_iterator(
+            param_pool, time_param_sizes, max_per_size=max_subsets_per_k
+        ):
             _add_subset([time_col, *subset])
 
     for y_col in outs:
@@ -1071,7 +1134,9 @@ def run_screening_stats_for_regime(
             if prep is None:
                 continue
             x_mat, y_vec = prep
-            r2, ar2, coefs, pvals, sig, ols_diag = _fit_ols_or_ridge(x_mat, y_vec, x_subset)
+            r2, ar2, coefs, pvals, sig, ols_diag = _fit_ols_or_ridge(
+                x_mat, y_vec, x_subset
+            )
             if r2 < MIN_R2:
                 continue
             panel_diag: DiagnosticResult | None = None
@@ -1113,7 +1178,9 @@ def run_screening_stats_for_regime(
         if time_col in sub_df.columns and time_col not in within_features:
             within_features = [time_col] + within_features
         for y_col in outs:
-            panel_res = _fit_panel_ols(sub_df, within_features, y_col, exp_col, time_col)
+            panel_res = _fit_panel_ols(
+                sub_df, within_features, y_col, exp_col, time_col
+            )
             if panel_res is not None:
                 r2, ar2, coefs, pvals, sig, panel_diag = panel_res
                 panel_candidates.append(
@@ -1142,7 +1209,11 @@ def run_screening_stats_for_regime(
         return "parameter_only"
 
     def _rank_key(c: _Candidate) -> float:
-        score = c.adj_r_squared if c.diagnostic and c.diagnostic.model_family == "panel_fe" else c.r_squared
+        score = (
+            c.adj_r_squared
+            if c.diagnostic and c.diagnostic.model_family == "panel_fe"
+            else c.r_squared
+        )
         return float(score * _effective_diagnostic_score(c))
 
     all_candidates = [*panel_candidates, *candidates]
@@ -1210,7 +1281,9 @@ def run_screening_stats_for_regime(
                     "description": desc,
                     "rationale": None,
                     "primary_variables": c.x_cols[:10],
-                    "model_family": "screening_panel_fe" if is_panel_fe else "screening_ols",
+                    "model_family": "screening_panel_fe"
+                    if is_panel_fe
+                    else "screening_ols",
                     "priority_score": round(c.r_squared, 4),
                     "is_refinement": False,
                 },
@@ -1230,7 +1303,9 @@ def run_screening_stats_for_regime(
                 },
                 "diagnostics": {
                     "ols": c.diagnostic.to_dict() if c.diagnostic else None,
-                    "panel": c.panel_diagnostic.to_dict() if c.panel_diagnostic else None,
+                    "panel": c.panel_diagnostic.to_dict()
+                    if c.panel_diagnostic
+                    else None,
                     "screening_model_class": _model_class(c),
                     "extended": {
                         "ols": _ols_extended_diagnostics(sub_df, c.x_cols, c.y_col),
