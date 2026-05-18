@@ -17,6 +17,7 @@ from sklearn.linear_model import ElasticNet, Lasso, LinearRegression, Ridge
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+from src.etl.experimental.detector import add_derived_entity_column
 from src.ingestion.dataset_screening_layout import (
     assign_screening_layout_from_column_lists,
     assign_screening_layout_from_legacy_column_slices,
@@ -194,6 +195,31 @@ def _build_panel_design(
     return x_panel, y_panel
 
 
+def _within_entity_pool(
+    df: pd.DataFrame,
+    pool: list[str],
+    entity_col: str,
+    *,
+    min_within_fraction: float = 0.05,
+) -> frozenset[str]:
+    """
+    Return the subset of pool features that have meaningful within-entity variation.
+    Features where within_var / total_var < min_within_fraction are absorbed by
+    entity fixed-effects and contribute nothing to within-R².
+    """
+    within: list[str] = []
+    for col in pool:
+        s = pd.to_numeric(df[col], errors="coerce")
+        total_var = float(s.var())
+        if total_var < 1e-9:
+            continue
+        entity_means = df.groupby(entity_col)[col].transform("mean")
+        within_var = float((s - entity_means).var())
+        if within_var / total_var >= min_within_fraction:
+            within.append(col)
+    return frozenset(within)
+
+
 def run_automated_screening_iteration(
     df: pd.DataFrame,
     *,
@@ -225,7 +251,15 @@ def run_automated_screening_iteration(
             replace_no_in_inputs=True,
         )
 
-    exp_col, time_col = _detect_panel_columns(df)
+    # Change 2: when unified_meta provides declared input columns, derive the true
+    # entity column from unique input combinations rather than keyword-matching.
+    # This correctly identifies e.g. 79 distinct runs where "condition" shows only 23.
+    if unified_meta is not None and unified_meta.input_cols:
+        time_col = str(unified_meta.time_col) if unified_meta.time_col else None
+        exp_col = add_derived_entity_column(df, list(unified_meta.input_cols), time_col)
+    else:
+        exp_col, time_col = _detect_panel_columns(df)
+
     total = 0
     sizes = (2, 3, 5)
     max_subsets_per_k = 36
@@ -254,13 +288,22 @@ def run_automated_screening_iteration(
             continue
         corr = num_block.corr(numeric_only=True).abs()
         outs = _numeric_output_names(sub_df, res.output_cols)
+
+        # Change 3 wiring: identify features with meaningful within-entity variation
+        # for panel FE. Features absorbed by entity dummies (within-fraction < 5%)
+        # are still used for cross-sectional OLS but excluded from panel design.
+        is_panel = (
+            exp_col is not None
+            and time_col is not None
+            and exp_col in sub_df.columns
+            and time_col in sub_df.columns
+        )
+        within_pool: frozenset[str] = frozenset()
+        if is_panel:
+            assert exp_col is not None
+            within_pool = _within_entity_pool(sub_df, pool, exp_col)
+
         for y_col in outs:
-            is_panel = (
-                exp_col is not None
-                and time_col is not None
-                and exp_col in sub_df.columns
-                and time_col in sub_df.columns
-            )
             for x_subset in _subset_iterator(
                 pool, sizes, max_per_size=max_subsets_per_k
             ):
@@ -273,9 +316,12 @@ def run_automated_screening_iteration(
                 panel_pair: tuple[np.ndarray, np.ndarray] | None = None
                 if is_panel:
                     assert exp_col is not None and time_col is not None
-                    panel_pair = _build_panel_design(
-                        sub_df, x_subset, y_col, exp_col, time_col
-                    )
+                    # Use only within-entity features for the panel design matrix
+                    within_subset = [f for f in x_subset if f in within_pool]
+                    if within_subset:
+                        panel_pair = _build_panel_design(
+                            sub_df, within_subset, y_col, exp_col, time_col
+                        )
                 px, py = panel_pair if panel_pair else (None, None)
                 total += _fit_and_count(x_mat, y_vec, panel_x=px, panel_y=py)
 

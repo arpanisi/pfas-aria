@@ -1,6 +1,6 @@
 """
 Data Loader.
-Loads the experimental PFAS dataset, infers schema, casts types,
+Loads experimental datasets, infers schema, casts types,
 and returns a validated DataBundle ready for downstream agents.
 No assumptions about column names — everything is inferred or config-driven.
 """
@@ -149,7 +149,7 @@ class DataLoader:
                 p = PROJECT_ROOT / p
         if not p.exists():
             raise DataFileNotFoundError(
-                f"Data file not found: {p}\n"
+                f"Data file not found: {p}\n"  # nosec B608
                 f"Update 'data.file_path' in configs/data_config.yaml "
                 f"or set ARIA_DATA_FILE for UI uploads."
             )
@@ -192,8 +192,8 @@ class DataLoader:
         df = df.dropna(how="all").dropna(axis=1, how="all")
         # Strip whitespace from string values
         str_cols = df.select_dtypes(include="object").columns
-        df[str_cols] = df[str_cols].apply(
-            lambda col: col.str.strip() if col.dtype == "object" else col
+        df[str_cols] = df[str_cols].map(
+            lambda value: value.strip() if isinstance(value, str) else value
         )
         return df.reset_index(drop=True)
 
@@ -218,7 +218,7 @@ class DataLoader:
         outcome = self._effective_outcome_name()
         if outcome not in df.columns:
             raise IngestionError(
-                f"Outcome variable '{outcome}' not found in dataset.\n"
+                f"Outcome variable '{outcome}' not found in dataset.\n"  # nosec B608
                 f"Available columns: {list(df.columns)}\n"
                 f"Update 'data.outcome_variable' in configs/data_config.yaml "
                 f"or set ARIA_OUTCOME_VARIABLE when launching from the UI."

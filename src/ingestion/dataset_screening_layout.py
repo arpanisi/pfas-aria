@@ -78,15 +78,15 @@ def assign_screening_layout_from_legacy_column_slices(
 def screening_layout_to_result_iter_payload(
     result: ScreeningLayoutResult,
 ) -> dict[str, Any]:
-    """Shape expected by :func:`persist_legacy_result_iter` (PFAS keys left empty)."""
+    """Shape expected by :func:`persist_legacy_result_iter`."""
     return {
         "regimes": result.regimes,
         "regime_frames": result.regimes,
         "input_cols": result.input_cols,
         "output_cols": result.output_cols,
-        "pfas_input_mg_l_cols": [],
-        "pfas_cols": [],
-        "pfas_out_cols": [],
-        "pfbs_out_col": None,
+        "composition_input_cols": [],
+        "composition_cols": [],
+        "composition_output_cols": [],
+        "primary_component_out_col": None,
         "regime_row_counts": {str(k): v for k, v in result.regime_row_counts.items()},
     }

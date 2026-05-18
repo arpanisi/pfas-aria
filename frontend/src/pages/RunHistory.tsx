@@ -42,14 +42,59 @@ function openRun(navigate: ReturnType<typeof useNavigate>, r: RunStatus) {
   navigate(`/runs/${r.run_id}`);
 }
 
-function ScreeningPhaseBadge({ phase }: { phase?: string | null }) {
-  if (phase === "grounding_completed") {
-    return <span className="phase-badge grounding">Literature grounded</span>;
-  }
-  if (phase === "stats_completed") {
-    return <span className="phase-badge stats">Statistical testing completed</span>;
-  }
-  return null;
+function ReportBadges({
+  r,
+  navigate,
+}: {
+  r: RunStatus;
+  navigate: ReturnType<typeof useNavigate>;
+}) {
+  const statsDone =
+    r.screening_phase === "stats_completed" ||
+    r.screening_phase === "grounding_completed";
+  const litDone = r.screening_phase === "grounding_completed";
+
+  const regimeId = r.regime_id != null ? r.regime_id : DEFAULT_SCREENING_REGIME_ID;
+  const q = new URLSearchParams({
+    filename: r.dataset_filename ?? "",
+    regimeId: String(regimeId),
+    runId: r.run_id,
+  });
+
+  const goStats = (e: MouseEvent) => {
+    e.stopPropagation();
+    if (!statsDone) return;
+    navigate(`/runs/stats?${q.toString()}`, { state: { runName: r.run_name } });
+  };
+
+  const goLit = (e: MouseEvent) => {
+    e.stopPropagation();
+    if (!litDone) return;
+    navigate(`/runs/screening?${q.toString()}`, { state: { runName: r.run_name } });
+  };
+
+  return (
+    <div className="report-badges">
+      <button
+        type="button"
+        className={`phase-badge stats ${statsDone ? "filled" : "empty"}`}
+        onClick={goStats}
+        disabled={!statsDone}
+        title={statsDone ? "View Statistical Testing Report" : "Statistical testing not yet run"}
+      >
+        Statistical Testing Report
+      </button>
+      <button
+        type="button"
+        className={`phase-badge grounding ${litDone ? "filled" : "empty"}`}
+        onClick={goLit}
+        disabled={!litDone}
+        title={litDone ? "View Literature Validation Report" : "Literature grounding not yet run"}
+      >
+        Literature Validation Report
+      </button>
+    </div>
+  );
 }
 
 export function RunHistory() {
@@ -116,13 +161,10 @@ export function RunHistory() {
             <div className="run-card-row">
               <div className="run-card-main">
                 <div className="run-card-top">
-                  <span className={`run-kind-pill ${r.run_kind === "screening" ? "screening" : ""}`}>
-                    {r.run_kind === "screening" ? "Screening" : "Pipeline"}
-                  </span>
                   <span className="run-card-name">{r.run_name}</span>
                   <span className="run-card-id">#{r.run_id}</span>
                   {r.run_kind === "screening" && (
-                    <ScreeningPhaseBadge phase={r.screening_phase} />
+                    <ReportBadges r={r} navigate={navigate} />
                   )}
                 </div>
                 <div className="run-card-meta">

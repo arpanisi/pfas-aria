@@ -24,9 +24,7 @@ import type {
 export const uploadDataset = async (file: File): Promise<DatasetPreview> => {
   const formData = new FormData();
   formData.append("file", file);
-  const { data } = await apiClient.post("/pipeline/upload", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
+  const { data } = await apiClient.post("/pipeline/upload", formData);
   return data;
 };
 
@@ -151,7 +149,6 @@ export const uploadPaper = async (
   const formData = new FormData();
   formData.append("file", file);
   const { data } = await apiClient.post("/corpus/upload", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
     timeout: 0,
     onUploadProgress: (e) => {
       if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100));

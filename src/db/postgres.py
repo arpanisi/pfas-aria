@@ -141,18 +141,16 @@ async def refresh_materialized_views() -> None:
     """
     from sqlalchemy import text
 
-    view_names = [
-        "mv_run_convergence",
-        "mv_top_variables",
-        "mv_top_citations",
+    refresh_statements = [
+        text("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_run_convergence"),
+        text("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_top_variables"),
+        text("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_top_citations"),
     ]
 
     async with engine.begin() as conn:
-        for view in view_names:
+        for statement in refresh_statements:
             try:
-                await conn.execute(
-                    text(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view}")
-                )
+                await conn.execute(statement)
             except Exception:
                 # Non-critical — dashboard falls back to live queries
                 pass

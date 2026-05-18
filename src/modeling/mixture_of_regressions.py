@@ -19,6 +19,7 @@ Fitted via EM algorithm. Number of regimes K selected via BIC.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -273,7 +274,7 @@ class MixtureOfRegressions:
         gamma = np.exp(log_gamma)
         gamma /= gamma.sum(axis=1, keepdims=True)
 
-        return np.asarray(gamma, dtype=np.float64)
+        return cast(np.ndarray, np.asarray(gamma, dtype=np.float64))
 
     def _m_step(
         self,

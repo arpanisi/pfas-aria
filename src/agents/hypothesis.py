@@ -37,7 +37,7 @@ class Hypothesis:
     primary_variables: list[str]  # Main predictors
     interaction_terms: list[tuple[str, str]]  # Variable pairs to interact
     control_variables: list[str]  # Variables to include as controls
-    model_family: str  # "ols" | "fixed_effects" | "random_effects" | "lasso" | "gradient_boosting"
+    model_family: str  # "ols" | "fixed_effects" | "random_effects" | "lasso" | "gradient_boosting" | "xgboost" | "two_stage"
     suggested_transforms: dict[str, str]  # var_name -> "log" | "sqrt" | "none"
     priority_score: float  # 0.0-1.0, higher = test first
     rag_support: list[str]  # Source titles that support this hypothesis
@@ -325,6 +325,8 @@ Return ONLY the JSON array. No other text."""
             "random_effects",
             "lasso",
             "gradient_boosting",
+            "xgboost",
+            "two_stage",
         }
         if model_family not in valid_families:
             model_family = "ols"

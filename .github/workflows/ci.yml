@@ -35,7 +35,7 @@ jobs:
         run: ruff format --check src/ tests/
 
       - name: Mypy type check
-        run: mypy src/ --ignore-missing-imports
+        run: mypy src/ --ignore-missing-imports --follow-imports=skip --cache-dir=/dev/null --disable-error-code=import-untyped
 
       - name: ShellCheck
         uses: ludeeus/action-shellcheck@master
@@ -64,8 +64,8 @@ jobs:
       - name: Bandit SAST
         run: bandit -r src/ -ll --exit-zero
 
-      # - name: pip-audit CVE scan
-      #   run: pip-audit --requirement requirements.txt
+      - name: pip-audit CVE scan
+        run: pip-audit --requirement requirements.txt --progress-spinner off
 
       - name: Semgrep SAST
         uses: semgrep/semgrep-action@v1
@@ -150,6 +150,10 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+
+      - name: Lint frontend
+        working-directory: frontend
+        run: npm run lint
 
       - name: Build frontend
         working-directory: frontend

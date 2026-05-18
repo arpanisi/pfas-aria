@@ -6,10 +6,10 @@ adds ~60-120s of overhead per call due to internal rate-limit sleeps.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET  # noqa: N817
 from dataclasses import dataclass
 
 import requests
+from defusedxml import ElementTree as ET  # noqa: N817
 
 from src.utils.logging import get_logger
 
@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 
 _ATOM_NS = "http://www.w3.org/2005/Atom"
 _ARXIV_NS = "http://arxiv.org/schemas/atom"
-_BASE_URL = "http://export.arxiv.org/api/query"
+_BASE_URL = "https://export.arxiv.org/api/query"
 
 
 @dataclass

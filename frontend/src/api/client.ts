@@ -6,6 +6,16 @@ export const apiClient = axios.create({
   baseURL: BASE_URL,
 });
 
+export function apiErrorMessage(error: unknown, fallback = "Request failed") {
+  if (!axios.isAxiosError(error)) return fallback;
+  const detail = error.response?.data?.detail;
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object" && "message" in detail) {
+    return String(detail.message);
+  }
+  return error.message || fallback;
+}
+
 let authInterceptor: number | null = null;
 
 export function setAuthToken(getToken: () => Promise<string | null>) {

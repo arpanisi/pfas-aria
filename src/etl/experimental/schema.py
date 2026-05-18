@@ -1,6 +1,6 @@
 """
 Experimental Data Schema.
-Pandera schema definitions for validating PFAS experimental datasets.
+Pandera schema definitions for validating experimental datasets.
 
 Two layers:
   1. BaseSchema  — minimal required structure (always enforced)
@@ -62,13 +62,13 @@ def build_base_schema(outcome_variable: str) -> pa.DataFrameSchema:
     )
 
 
-def build_pfas_schema(
+def build_experimental_schema(
     outcome_variable: str,
     feature_columns: list[str],
 ) -> pa.DataFrameSchema:
     """
-    PFAS-specific schema with domain knowledge.
-    Enforces reasonable ranges for common PFAS degradation variables.
+    Domain-neutral experimental schema with common physical range checks.
+    Enforces reasonable ranges for frequently observed experimental variables.
     All range checks are soft — warnings not errors.
     """
     column_defs: dict[str, pa.Column] = {
@@ -79,8 +79,8 @@ def build_pfas_schema(
         ),
     }
 
-    # Add soft checks for known PFAS experimental variables
-    pfas_ranges = {
+    # Add soft checks for known experimental variables.
+    experimental_ranges = {
         "ph": pa.Check.between(0.0, 14.0),
         "temperature": pa.Check.between(-10.0, 100.0),
         "temperature_c": pa.Check.between(-10.0, 100.0),
@@ -94,7 +94,7 @@ def build_pfas_schema(
     for col in feature_columns:
         col_lower = col.lower()
         check = None
-        for key, range_check in pfas_ranges.items():
+        for key, range_check in experimental_ranges.items():
             if key in col_lower:
                 check = range_check
                 break
@@ -108,7 +108,7 @@ def build_pfas_schema(
         columns=column_defs,
         coerce=True,
         strict=False,
-        name="PFASSchema",
+        name="ExperimentalSchema",
     )
 
 
@@ -119,7 +119,7 @@ class ExperimentalDataValidator:
     """
     Validates experimental DataFrames against Pandera schemas.
     Always runs base validation.
-    Runs domain schema if PFAS context is detected.
+    Runs the common experimental schema in strict mode.
     """
 
     def __init__(self) -> None:
@@ -169,8 +169,8 @@ class ExperimentalDataValidator:
         # Check 4: Domain schema (if strict mode)
         if strict and features:
             try:
-                pfas_schema = build_pfas_schema(outcome, features)
-                pfas_schema.validate(df, lazy=True)
+                experimental_schema = build_experimental_schema(outcome, features)
+                experimental_schema.validate(df, lazy=True)
             except pa.errors.SchemaErrors as e:
                 for _, row in e.failure_cases.iterrows():
                     warnings.append(

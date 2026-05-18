@@ -130,7 +130,9 @@ class CorpusLoader:
 
         documents = []
         for i, chunk_text in enumerate(chunks):
-            doc_id = hashlib.md5(f"{path.name}_{i}".encode()).hexdigest()[:12]
+            doc_id = hashlib.md5(
+                f"{path.name}_{i}".encode(), usedforsecurity=False
+            ).hexdigest()[:12]
 
             documents.append(
                 Document(

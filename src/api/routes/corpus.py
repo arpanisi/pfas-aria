@@ -85,13 +85,19 @@ class DomainContextOut(BaseModel):
     corpus_fingerprint: str
 
 
-# Process-level cache — survives repeated calls until corpus changes.
-_domain_cache: dict[str, str] = {"fingerprint": "", "context": ""}
+# Process-level cache — survives repeated calls until corpus or dataset columns change.
+_domain_cache: dict[str, str] = {"cache_key": "", "context": ""}
 
 
 def _corpus_fingerprint(paper_ids: list[str]) -> str:
     payload = "|".join(sorted(paper_ids)).encode()
-    return hashlib.md5(payload).hexdigest()
+    return hashlib.md5(payload, usedforsecurity=False).hexdigest()
+
+
+def _domain_context_cache_key(corpus_fingerprint: str, col_names: list[str]) -> str:
+    cols = "|".join(str(c) for c in col_names[:80]).encode()
+    col_fingerprint = hashlib.md5(cols, usedforsecurity=False).hexdigest()
+    return f"{corpus_fingerprint}:{col_fingerprint}"
 
 
 @router.post("/domain-context", response_model=DomainContextOut)
@@ -106,15 +112,16 @@ async def infer_domain_context(
     papers = result.scalars().all()
 
     fingerprint = _corpus_fingerprint([p.id for p in papers])
+    cache_key = _domain_context_cache_key(fingerprint, col_names)
 
     if len(papers) < 3:
-        _domain_cache["fingerprint"] = ""
-        _domain_cache["content"] = ""
+        _domain_cache["cache_key"] = ""
+        _domain_cache["context"] = ""
         return DomainContextOut(
             domain_context="", n_papers=len(papers), corpus_fingerprint=fingerprint
         )
 
-    if fingerprint == _domain_cache.get("fingerprint") and _domain_cache.get("context"):
+    if cache_key == _domain_cache.get("cache_key") and _domain_cache.get("context"):
         return DomainContextOut(
             domain_context=_domain_cache["context"],
             n_papers=len(papers),
@@ -129,7 +136,7 @@ async def infer_domain_context(
         return infer_domain_context(col_names, paper_titles)
 
     context = await asyncio.to_thread(_infer)
-    _domain_cache["fingerprint"] = fingerprint
+    _domain_cache["cache_key"] = cache_key
     _domain_cache["context"] = context
     return DomainContextOut(
         domain_context=context, n_papers=len(papers), corpus_fingerprint=fingerprint

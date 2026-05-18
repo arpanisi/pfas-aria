@@ -45,6 +45,7 @@ from src.db.redis_client import (
     invalidate_db_cache,
     set_grounding_job,
 )
+from src.ingestion.data_loader import DataLoader
 from src.ingestion.unified_experimental_sheet import UnifiedSheetMeta
 from src.reporting.narrative import (
     aggregate_system_summary,
@@ -127,6 +128,7 @@ async def upload_dataset(
         ) from e
 
     normalize_dataframe_columns(df)
+    df = DataLoader()._clean(df)
     from src.ingestion.upload_data_cleaning import apply_upload_data_cleaning
 
     cleaning_notes, encodings = apply_upload_data_cleaning(
@@ -865,6 +867,7 @@ async def screening_stats(
         ScreeningStatsBundleOut(
             hypothesis=ScreeningHypothesisOut(**b["hypothesis"]),
             model_result=ScreeningModelOut(**b["model_result"]),
+            diagnostics=b.get("diagnostics"),
         )
         for b in raw.get("bundles", [])
     ]

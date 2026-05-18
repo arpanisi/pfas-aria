@@ -251,8 +251,8 @@ class GroupedFixedEffects:
             if idx is not None:
                 y_pred[i] += group_time_params[idx]
 
-        ss_res = np.sum((y - y_pred) ** 2)
-        ss_tot = np.sum((y - y.mean()) ** 2)
+        ss_res = float(np.sum((y - y_pred) ** 2))
+        ss_tot = float(np.sum((y - y.mean()) ** 2))
         r2 = 1 - ss_res / ss_tot
 
         # BIC/AIC
