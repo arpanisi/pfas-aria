@@ -536,7 +536,7 @@ export function NewRun() {
                 className="input"
                 value={runName}
                 onChange={(e) => setRunName(e.target.value)}
-                placeholder="e.g. PFAS UV Batch 1"
+                placeholder="e.g. UV Batch 1"
               />
             </div>
             <div className="field field-span-2">

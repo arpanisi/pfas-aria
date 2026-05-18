@@ -155,9 +155,9 @@ def build_sections(pipeline_state: Any, convergence_report: Any) -> ReportSectio
     inflection = profile.split_timepoint if profile else None
     n_entities = profile.n_entities if profile else 0
     n_timepoints = profile.n_timepoints if profile else 0
-    pfca_cols = getattr(profile, "pfca_columns", []) if profile else []
+    composition_cols = getattr(profile, "composition_columns", []) if profile else []
 
-    group = _classify_group(pfca_cols)
+    group = _classify_group(composition_cols)
 
     classification = SystemClassification(
         experimental_group=group,
@@ -267,15 +267,15 @@ def build_sections(pipeline_state: Any, convergence_report: Any) -> ReportSectio
     )
 
 
-def _classify_group(pfca_cols: list[str]) -> str:
-    n = len(pfca_cols)
+def _classify_group(composition_cols: list[str]) -> str:
+    n = len(composition_cols)
     if n >= 5:
-        return "PFCA Mixture (C2-C8)"
+        return "Composition Series (5+ components)"
     if n == 1:
-        return f"Single PFCA ({pfca_cols[0].upper()})"
+        return f"Single Component ({composition_cols[0]})"
     if n == 0:
-        return "PFBS / Non-PFCA"
-    return f"Partial PFCA Mix ({n} species)"
+        return "No Composition Series"
+    return f"Partial Composition Series ({n} components)"
 
 
 def _cross_output_consistency(
@@ -313,13 +313,13 @@ def _pathway_section(pipeline_state: Any, panel_results: dict) -> PathwayMetrics
                 surfactant_effect = pe.coefficient
                 break
     interp = (
-        "Shannon entropy and KL divergence computed from PFCA species distribution."
+        "Shannon entropy and KL divergence computed from composition distribution."
         if has_entropy and has_kl
         else "Shannon entropy computed — tracks pathway spread."
         if has_entropy
         else "KL divergence computed — tracks shift from initial composition."
         if has_kl
-        else "No PFCA species detected — pathway metrics not computed."
+        else "No composition series detected — pathway metrics not computed."
     )
     return PathwayMetricsSection(
         has_entropy=has_entropy,

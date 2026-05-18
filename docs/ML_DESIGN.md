@@ -84,7 +84,7 @@ Any imputation should be treated as a modeling assumption, not as basic ingestio
 
 ## 3. Candidate Hypothesis Screening
 
-The screening stage fits many shallow, interpretable candidate models rather than one large model. This is intentional.
+The screening stage fits many shallow, interpretable candidate models.
 
 The system is usually trying to answer:
 

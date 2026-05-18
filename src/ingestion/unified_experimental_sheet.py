@@ -149,7 +149,8 @@ def _make_unique_column_names(raw_names: list[str]) -> list[str]:
     seen: dict[str, int] = {}
     out: list[str] = []
     for raw in raw_names:
-        base = str(raw).strip() or "col"
+        base = "" if pd.isna(raw) else str(raw).strip()
+        base = base or "col"
         snake = (
             base.lower()
             .replace(" ", "_")
@@ -333,7 +334,7 @@ def parse_unified_experimental_excel(
     raw_headers = [
         names_row.iloc[j] if j < len(names_row) else f"col_{j}" for j in range(n_cols)
     ]
-    col_names = _make_unique_column_names([str(x) for x in raw_headers])
+    col_names = _make_unique_column_names(raw_headers)
     data.columns = col_names
 
     meta_ix, in_ix, out_ix = _split_columns_by_role(types_row, n_cols)

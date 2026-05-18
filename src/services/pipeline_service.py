@@ -45,8 +45,13 @@ from src.ingestion.unified_experimental_sheet import (
     UnifiedSheetMeta,
     load_excel_bytes_with_layout,
 )
+from src.ingestion.data_loader import DataLoader
 from src.reporting.narrative import (
     aggregate_system_summary,
+    clean_llm_paragraph,
+    clean_llm_sentence,
+    clean_llm_title,
+    generate_display_title,
     generate_hypothesis_description,
     generate_hypothesis_rationale_from_model_evidence,
     generate_next_steps,
@@ -152,6 +157,7 @@ def read_normalized_dataframe(
             f"Unsupported file type: {suffix}",
         )
     normalize_dataframe_columns(df)
+    df = DataLoader()._clean(df)
     from src.ingestion.upload_data_cleaning import apply_upload_data_cleaning
 
     _notes, _enc = apply_upload_data_cleaning(df, unified_meta=unified_meta)
@@ -543,6 +549,16 @@ def next_steps_inputs(
     return list(sig), list(non_sig), titles[:4]
 
 
+def _fallback_screening_description(hyp: Hypothesis) -> str:
+    variables = list(hyp.primary_variables or [])[:3]
+    if variables:
+        return (
+            f"{', '.join(variables)} are associated with the screened outcome "
+            "in this regime."
+        )
+    return "Selected predictors are associated with the screened outcome in this regime."
+
+
 async def load_grounded_bundles(
     db: AsyncSession, run_id: str
 ) -> ScreeningGroundedOut | None:
@@ -578,6 +594,12 @@ async def load_grounded_bundles(
         )
         if not mr:
             continue
+        description = clean_llm_sentence(hyp.description) or _fallback_screening_description(hyp)
+        rationale = (
+            clean_llm_paragraph(hyp.rationale)
+            or clean_llm_sentence(hyp.rationale)
+            or None
+        )
         vr = (
             (
                 await db.execute(
@@ -604,8 +626,8 @@ async def load_grounded_bundles(
                     id=hyp.id,
                     hypothesis_id=hyp.hypothesis_id,
                     round=hyp.round,
-                    description=hyp.description,
-                    rationale=hyp.rationale,
+                    description=description,
+                    rationale=rationale,
                     primary_variables=list(hyp.primary_variables),
                     model_family=hyp.model_family,
                     priority_score=hyp.priority_score,
@@ -641,11 +663,9 @@ async def load_grounded_bundles(
             )
         )
 
-    summary = meta.get("system_summary") or None
-    next_steps = meta.get("next_steps") or None
-    display_title = (
-        str(meta.get("display_title") or "") or "Literature Grounding Results"
-    )
+    summary = clean_llm_paragraph(meta.get("system_summary")) or None
+    next_steps = clean_llm_paragraph(meta.get("next_steps")) or None
+    display_title = clean_llm_title(meta.get("display_title"))
 
     if not summary or not next_steps:
         rationales = [
@@ -662,6 +682,10 @@ async def load_grounded_bundles(
                 system_summary=summary,
                 citation_titles=cit_titles,
             )
+    if not display_title:
+        display_title = await asyncio.to_thread(
+            generate_display_title, bundles_out, summary
+        )
 
     return ScreeningGroundedOut(
         run_name=str(meta.get("run_name") or run_row.run_name),

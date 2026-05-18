@@ -11,6 +11,7 @@ from __future__ import annotations
 import secrets
 import warnings
 from dataclasses import dataclass
+import re
 from typing import cast
 
 import numpy as np
@@ -668,85 +669,109 @@ def _llm_grounding_query(y_col: str, x_cols: list[str]) -> str:
     return f"{outcome} as a function of {predictors}"
 
 
-def _external_search_query(y_col: str, x_cols: list[str]) -> str:
-    """Build a keyword-optimised query for arXiv / Semantic Scholar.
+_SEARCH_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "as",
+    "avg",
+    "average",
+    "by",
+    "col",
+    "column",
+    "conc",
+    "concentration",
+    "data",
+    "dose",
+    "final",
+    "for",
+    "from",
+    "id",
+    "in",
+    "initial",
+    "input",
+    "level",
+    "mean",
+    "mg",
+    "ml",
+    "ng",
+    "of",
+    "output",
+    "pct",
+    "percent",
+    "rate",
+    "result",
+    "sample",
+    "sec",
+    "time",
+    "to",
+    "total",
+    "ug",
+    "value",
+    "with",
+}
 
-    The embedding query is too verbose for keyword APIs — "concentration c4 as a
-    function of applied voltage kv, gas flowrate" sends arXiv into physics papers.
-    This function extracts chemical species and process type from column names so
-    the search stays in the right scientific domain.
+
+def _keyword_terms_from_columns(y_col: str, x_cols: list[str], *, limit: int = 10) -> list[str]:
+    """Extract domain-neutral search terms from actual column names."""
+    raw = " ".join([y_col, *x_cols]).lower()
+    tokens = re.findall(r"[a-z][a-z0-9]{2,}", raw.replace("_", " "))
+    terms: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        if token in _SEARCH_STOPWORDS:
+            continue
+        if token not in seen:
+            terms.append(token)
+            seen.add(token)
+        if len(terms) >= limit:
+            break
+    return terms
+
+
+def _process_terms_from_columns(cols: str) -> list[str]:
+    """Generic process hints; intentionally not tied to a specific chemical family."""
+    process_rules = (
+        (("plasma", "discharge", "voltage", "kv"), "plasma treatment"),
+        (("uv", "lamp", "fluence", "photolysis"), "photolysis"),
+        (("ozone", "o3"), "ozonation"),
+        (("sonication", "ultrasound", "acoustic"), "sonochemical treatment"),
+        (("electrochemical", "electrolysis", "current", "electrode"), "electrochemical treatment"),
+        (("thermal", "temperature", "pyrolysis", "incineration"), "thermal treatment"),
+        (("catalyst", "photocatalyst", "catalytic"), "catalysis"),
+        (("adsorption", "sorbent", "carbon", "resin"), "adsorption"),
+        (("peroxide", "h2o2", "oxidation", "oxidant"), "oxidation"),
+    )
+    out: list[str] = []
+    for needles, term in process_rules:
+        if any(n in cols for n in needles):
+            out.append(term)
+    return out
+
+
+def _external_search_query(y_col: str, x_cols: list[str]) -> str:
+    """Build a keyword-optimised query for external literature APIs.
+
+    This intentionally avoids hardcoded domain species. It derives compact search
+    terms from the selected outcome/predictor names and adds only generic process
+    hints such as photolysis, electrochemical treatment, or adsorption.
     """
     cols = " ".join([y_col] + list(x_cols)).lower()
 
-    terms: list[str] = []
-
-    # ── Chemical species ──────────────────────────────────────────────────────
-    species: list[str] = []
-    if "pfoa" in cols or ("c8" in cols and "concentration" in cols):
-        species.append("PFOA")
-    if "pfos" in cols:
-        species.append("PFOS")
-    if "pfhxa" in cols or ("c6" in cols and "concentration" in cols):
-        species.append("PFHxA")
-    if "pfna" in cols or ("c9" in cols and "concentration" in cols):
-        species.append("PFNA")
-    if "pfbs" in cols or ("c4" in cols and "concentration" in cols):
-        species.append("PFBS")
-    if "pfhxs" in cols or "c6s" in cols:
-        species.append("PFHxS")
-    # Always include generic PFAS alongside any specific compound —
-    # improves recall on arXiv/S2 where specific short-chain compounds are less indexed.
-    if (
-        any(t in cols for t in ("pfas", "pfaa", "perfluoro", "fluoride", "fluoriode"))
-        or species
-    ):
-        species.append("PFAS")
-    terms.extend(dict.fromkeys(species))  # deduplicate, preserve order
-
-    # ── Treatment / process ───────────────────────────────────────────────────
-    if any(
-        t in cols
-        for t in (
-            "voltage",
-            "discharge",
-            "plasma",
-            "gas_flow",
-            "gas_used",
-            "flowrate",
-            "kv",
-        )
-    ):
-        terms.append("cold atmospheric plasma")
-    if any(t in cols for t in ("h2o2", "peroxide")):
-        terms.append("hydrogen peroxide")
-    if any(t in cols for t in ("uv", "lamp", "fluence")):
-        terms.append("UV photolysis")
-    if any(t in cols for t in ("ozone", " o3 ")):
-        terms.append("ozonation")
-    if any(t in cols for t in ("sonication", "ultrasound", "acoustic")):
-        terms.append("sonochemical")
-    if any(
-        t in cols for t in ("electrochemical", "electrolysis", "current", "electrode")
-    ):
-        terms.append("electrochemical oxidation")
-
-    # ── Outcome type ──────────────────────────────────────────────────────────
-    if any(t in cols for t in ("fluoride", "fluoriode", "defluor")):
-        terms.append("defluorination")
-    elif any(t in cols for t in ("removal", "degradation", "concentration")):
+    terms = [
+        *_keyword_terms_from_columns(y_col, x_cols),
+        *_process_terms_from_columns(cols),
+    ]
+    if any(t in cols for t in ("removal", "degradation", "decay", "yield")):
         terms.append("degradation")
-
-    # ── Matrix — always include for PFAS (always water context) ──────────────
-    if species or any(
-        t in cols for t in ("water", "solution", "aqueous", "ph", "conductivity")
-    ):
+    if any(t in cols for t in ("water", "solution", "aqueous", "ph", "conductivity")):
         terms.append("water treatment")
 
     if not terms:
         # Last resort: fall back to the compact humanized form
         return _llm_grounding_query(y_col, x_cols)
 
-    return " ".join(terms)
+    return " ".join(dict.fromkeys(terms))
 
 
 def _literature_score(retriever: Retriever, y_col: str, x_cols: list[str]) -> float:
@@ -947,7 +972,7 @@ def run_screening_grounded_for_regime(
         model_type = "panel_fixed_effects" if is_panel_fe else "screening_linear"
         desc = (
             f"{' · '.join(c.x_cols[:6])}{' …' if len(c.x_cols) > 6 else ''} "
-            f"jointly associate with {c.y_col} in regime {rid} "
+            f"jointly associate with {c.y_col}"
             f"(n={c.n_obs} observations)."
         )
         rationale = (
@@ -1169,7 +1194,7 @@ def run_screening_stats_for_regime(
     # Panel screening: one PanelOLS fit per output using within-entity features.
     # Treatment-level inputs (constant within a run) are absorbed by entity dummies —
     # time_col is explicitly included as the kinetics regressor even when within_pool
-    # is otherwise empty (all inputs are between-entity, which is common for PFAS data).
+    # is otherwise empty (all inputs are between-entity in many experimental layouts).
     panel_candidates: list[_Candidate] = []
     if is_panel:
         assert exp_col is not None and time_col is not None
@@ -1268,7 +1293,7 @@ def run_screening_stats_for_regime(
         model_type = "panel_fixed_effects" if is_panel_fe else "screening_linear"
         desc = (
             f"{' · '.join(c.x_cols[:6])}{' …' if len(c.x_cols) > 6 else ''} "
-            f"jointly associate with {c.y_col} in regime {rid} "
+            f"jointly associate with {c.y_col}"
             f"(n={c.n_obs} observations)."
         )
         bundles.append(
@@ -1424,7 +1449,7 @@ def run_grounding_from_precomputed(
         mid = secrets.token_hex(4)
         desc = (
             f"{' · '.join(c.x_cols[:6])}{' …' if len(c.x_cols) > 6 else ''} "
-            f"jointly associate with {c.y_col} in regime {regime_id} "
+            f"jointly associate with {c.y_col}"
             f"(n={c.n_obs} observations)."
         )
         rationale = (

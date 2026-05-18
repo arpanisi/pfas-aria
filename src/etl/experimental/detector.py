@@ -15,6 +15,7 @@ The decisions made here determine the entire modeling strategy.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import cast
@@ -62,10 +63,13 @@ def add_derived_entity_column(
     return DERIVED_ENTITY_COL
 
 
-# PFCA chain-length column patterns
-PFCA_PATTERNS = ["c2", "c3", "c4", "c5", "c6", "c7", "c8"]
-PFCA_LONG_CHAIN = ["c6", "c7", "c8"]
-PFCA_SHORT_CHAIN = ["c2", "c3", "c4", "c5"]
+# Indexed composition columns such as c2, species_2, analyte_2, component_2,
+# conc_c2, or concentration_2 can support distribution metrics like entropy/KL.
+_COMPOSITION_PATTERNS = (
+    re.compile(r"^c(?P<idx>\d{1,2})$"),
+    re.compile(r"^(?:conc|concentration)c?(?P<idx>\d{1,2})$"),
+    re.compile(r"^(?:species|analyte|component|compound|fraction)(?P<idx>\d{1,2})$"),
+)
 
 
 class ModelingApproach(StrEnum):
@@ -76,10 +80,10 @@ class ModelingApproach(StrEnum):
 
 class OutputType(StrEnum):
     DIRECT = "direct"  # column exists in data, model directly
-    DERIVED_ENTROPY = "derived_entropy"  # computed from PFCA species
-    DERIVED_KL = "derived_kl"  # computed from PFCA species
+    DERIVED_ENTROPY = "derived_entropy"  # computed from composition columns
+    DERIVED_KL = "derived_kl"  # computed from composition columns
     DERIVED_RATE = "derived_rate"  # fitted from first-order decay
-    DERIVED_TOTAL = "derived_total"  # sum of PFCA species
+    DERIVED_TOTAL = "derived_total"  # sum of composition columns
 
 
 @dataclass
@@ -110,12 +114,12 @@ class DatasetProfile:
     n_entities: int
     time_inflection: float | None  # detected inflection point (e.g. 30 min)
 
-    # PFCA structure
-    has_pfca_species: bool
-    pfca_columns: list[str]
-    has_long_chain: bool
-    has_short_chain: bool
-    parent_compound: str | None  # single decaying parent (e.g. "c8")
+    # Composition-series structure
+    has_composition_series: bool
+    composition_columns: list[str]
+    has_high_index_components: bool
+    has_low_index_components: bool
+    parent_component: str | None  # single decaying parent-like component
 
     # Active outputs
     active_outputs: list[ActiveOutput]
@@ -140,8 +144,8 @@ class DatasetProfile:
             f"Time column: {self.time_column}",
             f"Entity column: {self.entity_column}",
             f"Timepoints: {self.n_timepoints}, Entities: {self.n_entities}",
-            f"PFCA species detected: {self.pfca_columns}",
-            f"Parent compound: {self.parent_compound}",
+            f"Composition columns detected: {self.composition_columns}",
+            f"Parent-like component: {self.parent_component}",
             f"Active outputs ({self.n_active_outputs}):",
         ]
         for o in self.active_outputs:
@@ -210,9 +214,13 @@ class DatasetDetector:
         n_timepoints = df[time_col].nunique() if time_col else 1
         n_entities = df[entity_col].nunique() if entity_col else len(df)
 
-        pfca_cols = self._detect_pfca_columns(df)
-        has_pfca = len(pfca_cols) >= 2
-        parent = self._detect_parent_compound(df, pfca_cols) if has_pfca else None
+        composition_cols = self._detect_composition_columns(df)
+        has_composition = len(composition_cols) >= 2
+        parent = (
+            self._detect_parent_component(df, composition_cols)
+            if has_composition
+            else None
+        )
 
         active_predictors, constant_predictors, between_entity_predictors = (
             self._split_predictors(df, feature_columns, entity_col, time_col)
@@ -221,18 +229,24 @@ class DatasetDetector:
         active_outputs = self._detect_active_outputs(
             df=df,
             outcome_variable=outcome_variable,
-            pfca_cols=pfca_cols,
-            has_pfca=has_pfca,
+            composition_cols=composition_cols,
+            has_composition=has_composition,
             parent=parent,
             is_panel=is_panel,
             time_col=time_col,
         )
 
         inflection = (
-            self._detect_inflection(df, pfca_cols, time_col)
-            if has_pfca and time_col
+            self._detect_inflection(df, composition_cols, time_col)
+            if has_composition and time_col
             else None
         )
+        indices = [
+            idx
+            for col in composition_cols
+            if (idx := self._composition_index(col)) is not None
+        ]
+        midpoint = (min(indices) + max(indices)) / 2 if indices else 0
 
         profile = DatasetProfile(
             is_panel=is_panel,
@@ -241,11 +255,11 @@ class DatasetDetector:
             n_timepoints=n_timepoints,
             n_entities=n_entities,
             time_inflection=inflection,
-            has_pfca_species=has_pfca,
-            pfca_columns=pfca_cols,
-            has_long_chain=any(c in pfca_cols for c in PFCA_LONG_CHAIN),
-            has_short_chain=any(c in pfca_cols for c in PFCA_SHORT_CHAIN),
-            parent_compound=parent,
+            has_composition_series=has_composition,
+            composition_columns=composition_cols,
+            has_high_index_components=any(i > midpoint for i in indices),
+            has_low_index_components=any(i <= midpoint for i in indices),
+            parent_component=parent,
             active_outputs=active_outputs,
             active_predictors=active_predictors,
             constant_predictors=constant_predictors,
@@ -327,32 +341,35 @@ class DatasetDetector:
         )
         return is_panel
 
-    def _detect_pfca_columns(self, df: pd.DataFrame) -> list[str]:
-        """Find PFCA chain-length columns (c2–c8)."""
-        found = []
-        for col in df.columns:
-            col_lower = col.lower().replace("_", "").replace("-", "")
-            for pattern in PFCA_PATTERNS:
-                if (
-                    col_lower == pattern
-                    or col_lower == f"pfca{pattern}"
-                    or col_lower == f"conc{pattern}"
-                ):
-                    found.append(col)
-                    break
-        logger.debug(f"PFCA columns detected: {found}")
-        return found
+    def _composition_index(self, col: str) -> int | None:
+        col_lower = col.lower().replace("_", "").replace("-", "")
+        for pattern in _COMPOSITION_PATTERNS:
+            m = pattern.match(col_lower)
+            if m:
+                return int(m.group("idx"))
+        return None
 
-    def _detect_parent_compound(
-        self, df: pd.DataFrame, pfca_cols: list[str]
+    def _detect_composition_columns(self, df: pd.DataFrame) -> list[str]:
+        """Find indexed composition columns usable for entropy/KL metrics."""
+        found: list[tuple[int, str]] = []
+        for col in df.columns:
+            idx = self._composition_index(col)
+            if idx is not None and pd.api.types.is_numeric_dtype(df[col]):
+                found.append((idx, col))
+        cols = [col for _, col in sorted(found)]
+        logger.debug(f"Composition columns detected: {cols}")
+        return cols
+
+    def _detect_parent_component(
+        self, df: pd.DataFrame, composition_cols: list[str]
     ) -> str | None:
         """
-        Detect the parent compound — the column that starts highest
+        Detect the parent-like component — the column that starts highest
         and decays most monotonically.
         """
         best_col = None
         best_score = -1.0
-        for col in pfca_cols:
+        for col in composition_cols:
             series = df[col].dropna()
             if len(series) < 4 or series.max() < 0.01:
                 continue
@@ -364,7 +381,7 @@ class DatasetDetector:
                 best_score = decay_ratio
                 best_col = col
         logger.debug(
-            f"Parent compound detected: {best_col} (decay ratio={best_score:.3f})"
+            f"Parent-like component detected: {best_col} (decay ratio={best_score:.3f})"
         )
         return best_col
 
@@ -433,8 +450,8 @@ class DatasetDetector:
         self,
         df: pd.DataFrame,
         outcome_variable: str,
-        pfca_cols: list[str],
-        has_pfca: bool,
+        composition_cols: list[str],
+        has_composition: bool,
         parent: str | None,
         is_panel: bool,
         time_col: str | None,
@@ -468,32 +485,8 @@ class DatasetDetector:
                     )
                 )
 
-        # 2. Fluoride yield (if separate from outcome)
-        for col_name in df.columns:
-            if "fluoride" in col_name.lower() and col_name != outcome_variable:
-                col = df[col_name]
-                nonzero = int((col > 0).sum())
-                var = float(col.var())
-                if (
-                    nonzero > len(df) * self.MIN_NONZERO_FRACTION
-                    and var > self.MIN_VARIANCE
-                ):
-                    outputs.append(
-                        ActiveOutput(
-                            name=col_name,
-                            output_type=OutputType.DIRECT,
-                            modeling_approach=ModelingApproach.PANEL_REGRESSION
-                            if is_panel
-                            else ModelingApproach.CROSS_SECTIONAL,
-                            source_columns=[col_name],
-                            n_nonzero=nonzero,
-                            variance=var,
-                            rationale="Fluoride yield — defluorination metric",
-                        )
-                    )
-
-        # 3. Shannon entropy (derived from PFCA species)
-        if has_pfca and len(pfca_cols) >= 3:
+        # 2. Shannon entropy (derived from composition columns)
+        if has_composition and len(composition_cols) >= 3:
             outputs.append(
                 ActiveOutput(
                     name="shannon_entropy",
@@ -501,15 +494,15 @@ class DatasetDetector:
                     modeling_approach=ModelingApproach.PANEL_REGRESSION
                     if is_panel
                     else ModelingApproach.CROSS_SECTIONAL,
-                    source_columns=pfca_cols,
+                    source_columns=composition_cols,
                     n_nonzero=len(df),
                     variance=1.0,  # will be computed
-                    rationale=f"Derived from {len(pfca_cols)} PFCA species — pathway spread metric",
+                    rationale=f"Derived from {len(composition_cols)} composition columns — distribution spread metric",
                 )
             )
 
-        # 4. KL divergence (derived from PFCA species)
-        if has_pfca and len(pfca_cols) >= 3 and time_col:
+        # 3. KL divergence (derived from composition columns)
+        if has_composition and len(composition_cols) >= 3 and time_col:
             outputs.append(
                 ActiveOutput(
                     name="kl_divergence",
@@ -517,14 +510,14 @@ class DatasetDetector:
                     modeling_approach=ModelingApproach.PANEL_REGRESSION
                     if is_panel
                     else ModelingApproach.CROSS_SECTIONAL,
-                    source_columns=pfca_cols,
+                    source_columns=composition_cols,
                     n_nonzero=len(df),
                     variance=1.0,  # will be computed
-                    rationale="Derived from PFCA species — pathway shift from initial composition",
+                    rationale="Derived from composition columns — distribution shift from initial composition",
                 )
             )
 
-        # 5. First-order rate constant k (derived from parent decay)
+        # 4. First-order rate constant k (derived from parent-like component decay)
         if parent and time_col and is_panel:
             outputs.append(
                 ActiveOutput(
@@ -538,9 +531,9 @@ class DatasetDetector:
                 )
             )
 
-        # 6. Total PFCA concentration (if multiple species present)
-        if has_pfca and len(pfca_cols) >= 3:
-            total = df[pfca_cols].sum(axis=1)
+        # 5. Total composition concentration (if multiple components present)
+        if has_composition and len(composition_cols) >= 3:
+            total = df[composition_cols].sum(axis=1)
             nonzero = int((total > 0).sum())
             var = float(total.var())
             if (
@@ -549,15 +542,15 @@ class DatasetDetector:
             ):
                 outputs.append(
                     ActiveOutput(
-                        name="total_pfca_concentration",
+                        name="total_composition_concentration",
                         output_type=OutputType.DERIVED_TOTAL,
                         modeling_approach=ModelingApproach.PANEL_REGRESSION
                         if is_panel
                         else ModelingApproach.CROSS_SECTIONAL,
-                        source_columns=pfca_cols,
+                        source_columns=composition_cols,
                         n_nonzero=nonzero,
                         variance=var,
-                        rationale="Sum of all PFCA species — mixture-level degradation kinetics",
+                        rationale="Sum of composition columns — mixture-level concentration trajectory",
                     )
                 )
 
@@ -567,12 +560,12 @@ class DatasetDetector:
     def _detect_inflection(
         self,
         df: pd.DataFrame,
-        pfca_cols: list[str],
+        composition_cols: list[str],
         time_col: str,
     ) -> float | None:
         """
         Detect the temporal inflection point in entropy trajectory.
-        The point where intermediate spread peaks — typically ~30 min in PFCA systems.
+        The point where distribution spread peaks.
         """
         try:
             times = sorted(df[time_col].dropna().unique())
@@ -582,7 +575,7 @@ class DatasetDetector:
             # Compute average entropy per timepoint
             entropies: list[tuple[float, float]] = []
             for t in times:
-                subset = df[df[time_col] == t][pfca_cols].values
+                subset = df[df[time_col] == t][composition_cols].values
                 if len(subset) == 0:
                     continue
                 avg = np.asarray(subset.mean(axis=0), dtype=np.float64)

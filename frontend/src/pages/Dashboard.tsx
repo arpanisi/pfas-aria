@@ -165,8 +165,8 @@ function reasonTags(citation: Citation, selected: Hypothesis | null) {
   if (title.includes("plasma")) tags.add("plasma reactor");
   if (title.includes("electrochemical")) tags.add("kinetics");
   if (title.includes("incinerability") || title.includes("thermal")) tags.add("mechanism");
-  if (title.includes("pfca") || title.includes("pfoa")) tags.add("PFCA/PFOA");
-  if (title.includes("pfas")) tags.add("PFAS");
+  if (title.includes("degradation") || title.includes("removal")) tags.add("degradation");
+  if (title.includes("water") || title.includes("aqueous")) tags.add("water treatment");
   return Array.from(tags).slice(0, 4);
 }
 
@@ -302,7 +302,7 @@ export function Dashboard() {
         <section className="hero-card">
           <div>
             <div className="eyebrow">Agentic hypothesis testing dashboard</div>
-            <h1>{summary?.run_name ?? "PFAS mechanistic inference run"}</h1>
+            <h1>{summary?.run_name ?? "Mechanistic inference run"}</h1>
             <p>
               Hypotheses are tested statistically, interpreted mechanistically, and grounded against a mixed literature corpus of uploaded papers plus externally retrieved matches.
             </p>

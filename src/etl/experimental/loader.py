@@ -31,7 +31,7 @@ SUPPORTED_EXTENSIONS = {".csv", ".tsv", ".xlsx", ".xls"}
 
 class ExperimentalETL:
     """
-    Full ETL pipeline for experimental PFAS data.
+    Full ETL pipeline for experimental data.
     Validates, transforms, versions, and returns a DataBundle.
     """
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from collections.abc import Callable
 
 from src.reporting.sections import (
@@ -315,7 +316,31 @@ _GARBAGE_PATTERNS = (
     "dp-answer",
     "---------",
     "####",
+    # URL / encoding fragments
+    ".com/",
+    "http://",
+    "https://",
+    "%20",
+    # LaTeX / math markup
+    "<math>",
+    "^{",
+    ".rseqtable",
+    "{\\",
 )
+
+# Consecutive non-word/non-space punctuation (e.g. ))))))), .>}.., ---)
+_REPEATED_PUNCT = re.compile(r"[^\w\s]{3,}")
+
+# Chars that should never appear inside a prose word
+_INVALID_WORD_CHARS = re.compile(r"[*|\\@#{}_%]")
+
+# Common English stopwords excluded from the repetition check
+_STOPWORDS = frozenset({
+    "the", "a", "an", "and", "or", "of", "in", "is", "are", "was", "were",
+    "to", "for", "with", "that", "this", "it", "as", "at", "be", "by", "on",
+    "not", "from", "but", "its", "their", "which", "have", "has", "been",
+    "also", "both", "more", "than", "into", "over", "such", "these",
+})
 
 # ── Thinking-strip helpers ─────────────────────────────────────────────────────
 
@@ -376,16 +401,45 @@ def _is_clean_sentence(text: str) -> bool:
     """Return False if the text looks like garbage, chain-of-thought, or multilingual noise."""
     if not text or len(text) < 15:
         return False
+    # Non-ASCII ratio — catches German/Polish/Chinese/emoji leakage (tightened from 0.03)
     non_ascii = sum(1 for c in text if ord(c) > 127)
-    if non_ascii / len(text) > 0.03:
+    if non_ascii / len(text) > 0.015:
         return False
+    # Alpha+space density — catches punctuation-heavy garbage (tightened from 0.60)
     alpha_space = sum(1 for c in text if c.isalpha() or c == " ")
-    if alpha_space / len(text) < 0.60:
+    if alpha_space / len(text) < 0.65:
         return False
     if text.lower().startswith(_BAD_STARTS):
         return False
     if any(p in text for p in _GARBAGE_PATTERNS):
         return False
+    # Consecutive punctuation block — catches ))))))), .>>}.., etc.
+    if _REPEATED_PUNCT.search(text):
+        return False
+    words = text.split()
+    # Minimum word count — single-word or token-fragment output is not prose
+    if len(words) < 6:
+        return False
+    # Dirty-word check — words containing chars that should never appear in prose
+    strip_chars = ".,!?;:()[]\"'"
+    dirty = sum(
+        1 for w in words
+        if _INVALID_WORD_CHARS.search(w.strip(strip_chars))
+    )
+    if dirty / len(words) > 0.15:
+        return False
+    # Repetition check — non-stopword (len≥4) appearing in >20% of all words
+    # catches "narudi narudi narudi …" style looping output
+    significant = [
+        w.lower().strip(strip_chars)
+        for w in words
+        if len(w.strip(strip_chars)) >= 4
+        and w.lower().strip(strip_chars) not in _STOPWORDS
+    ]
+    if significant:
+        top_count = Counter(significant).most_common(1)[0][1]
+        if top_count / len(words) > 0.20:
+            return False
     return True
 
 
@@ -491,13 +545,6 @@ def aggregate_system_summary(rationales: list[str]) -> str | None:
 
 
 _KNOWN_ACRONYMS = {
-    "pfas",
-    "pfbs",
-    "pfoa",
-    "pfos",
-    "c4",
-    "c5",
-    "c6",
     "ph",
     "uv",
     "ntp",
@@ -510,7 +557,7 @@ _UNIT_SUFFIXES = re.compile(
 
 
 def _plain_name(col: str) -> str:
-    """Convert a snake_case column name to plain English, preserving known acronyms."""
+    """Convert a snake_case column name to plain English, preserving common acronyms."""
     label = _UNIT_SUFFIXES.sub("", col.replace("_", " ")).strip()
     words = label.split()
     return " ".join(w.upper() if w.lower() in _KNOWN_ACRONYMS else w for w in words)
@@ -605,6 +652,31 @@ def _is_clean_title(text: str) -> bool:
     return True
 
 
+def _strip_llm_label_prefix(text: str) -> str:
+    for prefix in ("output:", "title:", "answer:"):
+        if text.lower().startswith(prefix):
+            return text[len(prefix) :].strip()
+    return text.lstrip(":").strip()
+
+
+def clean_llm_sentence(text: str | None) -> str | None:
+    """Return stripped LLM prose only if it passes the sentence guardrail."""
+    cleaned = _strip_llm_label_prefix(_strip_thinking(text or "").strip())
+    return cleaned if _is_clean_sentence(cleaned) else None
+
+
+def clean_llm_paragraph(text: str | None) -> str | None:
+    """Return stripped LLM prose only if it passes the paragraph guardrail."""
+    cleaned = _strip_llm_label_prefix(_strip_thinking(text or "").strip())
+    return cleaned if _is_clean_paragraph(cleaned) else None
+
+
+def clean_llm_title(text: str | None) -> str | None:
+    """Return stripped LLM title text only if it passes the title guardrail."""
+    cleaned = _strip_llm_label_prefix(_strip_thinking(text or "").strip()).rstrip(".")
+    return cleaned if _is_clean_title(cleaned) else None
+
+
 def generate_display_title(
     bundles: list,
     system_summary: str | None = None,
@@ -664,7 +736,7 @@ def generate_display_title(
                 "Write a 6-9 word decision-making slide title that states the single most "
                 "important finding. Use plain English — no method words (OLS, regression, model, plasma).\n\n"
                 "Format: [Key predictor(s)] [action verb] [outcome]. Examples:\n"
-                "- Gas Type and Additives Jointly Control Final PFAS Concentration\n"
+                "- Gas Type and Additives Jointly Control Final Analyte Concentration\n"
                 "- Initial Concentration Determines Degradation Outcome Across Conditions\n"
                 "- Surfactant Choice Amplifies Fluoride Ion Yield in Plasma Treatment\n\n"
                 f"Key predictors: {', '.join(sig_plain) or 'see description'}\n"

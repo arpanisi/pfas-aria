@@ -46,6 +46,7 @@ from src.db.redis_client import (
     set_grounding_job,
 )
 from src.ingestion.unified_experimental_sheet import UnifiedSheetMeta
+from src.ingestion.data_loader import DataLoader
 from src.reporting.narrative import (
     aggregate_system_summary,
     generate_display_title,
@@ -127,6 +128,7 @@ async def upload_dataset(
         ) from e
 
     normalize_dataframe_columns(df)
+    df = DataLoader()._clean(df)
     from src.ingestion.upload_data_cleaning import apply_upload_data_cleaning
 
     cleaning_notes, encodings = apply_upload_data_cleaning(

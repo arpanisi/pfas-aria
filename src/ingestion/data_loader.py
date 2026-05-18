@@ -1,6 +1,6 @@
 """
 Data Loader.
-Loads the experimental PFAS dataset, infers schema, casts types,
+Loads experimental datasets, infers schema, casts types,
 and returns a validated DataBundle ready for downstream agents.
 No assumptions about column names — everything is inferred or config-driven.
 """
@@ -192,8 +192,8 @@ class DataLoader:
         df = df.dropna(how="all").dropna(axis=1, how="all")
         # Strip whitespace from string values
         str_cols = df.select_dtypes(include="object").columns
-        df[str_cols] = df[str_cols].apply(
-            lambda col: col.str.strip() if col.dtype == "object" else col
+        df[str_cols] = df[str_cols].map(
+            lambda value: value.strip() if isinstance(value, str) else value
         )
         return df.reset_index(drop=True)
 

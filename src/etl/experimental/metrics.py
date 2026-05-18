@@ -1,7 +1,7 @@
 """
 Derived Metrics Computation.
 Computes Shannon entropy, KL divergence, and first-order rate constant k
-from raw PFCA species concentration data.
+from raw composition/concentration columns.
 
 These are computed in the ETL layer before modeling —
 they become additional columns in the dataset that the modeling engine treats
@@ -23,17 +23,17 @@ EPS = 1e-12  # numerical stability
 
 def compute_shannon_entropy(
     df: pd.DataFrame,
-    pfca_columns: list[str],
+    composition_columns: list[str],
 ) -> pd.Series:
     """
-    Compute Shannon entropy of PFCA species distribution at each row (timepoint).
+    Compute Shannon entropy of a composition distribution at each row (timepoint).
 
     H = -sum(p_i * log(p_i))
 
-    High entropy = PFCA mass broadly distributed across chain lengths (intermediate-rich state)
-    Low entropy  = PFCA mass concentrated in one or few species (early parent or late short-chain)
+    High entropy = mass/abundance broadly distributed across components.
+    Low entropy  = mass/abundance concentrated in one or few components.
     """
-    conc = df[pfca_columns].clip(lower=0.0)
+    conc = df[composition_columns].clip(lower=0.0)
     total = conc.sum(axis=1)
 
     # Normalize to probability distribution
@@ -53,12 +53,12 @@ def compute_shannon_entropy(
 
 def compute_kl_divergence(
     df: pd.DataFrame,
-    pfca_columns: list[str],
+    composition_columns: list[str],
     entity_column: str,
     time_column: str,
 ) -> pd.Series:
     """
-    Compute KL divergence from initial PFCA composition at each timepoint.
+    Compute KL divergence from initial composition at each timepoint.
 
     KL(P || Q) = sum(p_i * log(p_i / q_i))
 
@@ -73,7 +73,7 @@ def compute_kl_divergence(
 
     for entity_id, group in df.groupby(entity_column):
         group_sorted = group.sort_values(time_column)
-        conc = group_sorted[pfca_columns].clip(lower=0.0)
+        conc = group_sorted[composition_columns].clip(lower=0.0)
         total = conc.sum(axis=1)
 
         p_all = conc.div(total.replace(0, np.nan), axis=0).fillna(0.0)
@@ -180,7 +180,7 @@ def compute_rate_constants(
 
 def augment_dataframe(
     df: pd.DataFrame,
-    pfca_columns: list[str],
+    composition_columns: list[str],
     entity_column: str | None,
     time_column: str | None,
     parent_column: str | None,
@@ -198,13 +198,13 @@ def augment_dataframe(
     df = df.copy()
     rate_df = pd.DataFrame()
 
-    if len(pfca_columns) >= 3:
-        df["shannon_entropy"] = compute_shannon_entropy(df, pfca_columns)
+    if len(composition_columns) >= 3:
+        df["shannon_entropy"] = compute_shannon_entropy(df, composition_columns)
         logger.info("Shannon entropy added to dataset")
 
         if entity_column and time_column:
             df["kl_divergence"] = compute_kl_divergence(
-                df, pfca_columns, entity_column, time_column
+                df, composition_columns, entity_column, time_column
             )
             logger.info("KL divergence added to dataset")
 

@@ -116,11 +116,13 @@ async def persist_legacy_result_iter(
     Persist one file's ``result_iter`` dict (legacy notebook shape).
 
     Expected keys (best-effort; missing keys skipped):
-      regimes, regime_frames, input_cols, output_cols, pfas_input_mg_l_cols,
-      pfas_cols, pfas_out_cols,
-      regime_row_counts,
-      pfbs_out_col, cat_cols, const_cols, non_unique_cols, input_covariates,
-      conditions, regression_cols, panel_keys
+      regimes, regime_frames, input_cols, output_cols,
+      composition_input_cols, composition_cols, composition_output_cols,
+      primary_component_out_col, regime_row_counts, cat_cols, const_cols,
+      non_unique_cols, input_covariates, conditions, regression_cols, panel_keys.
+
+    Older payloads may still provide the former species-specific column keys;
+    those are read as a fallback until stored segmentation payloads are migrated.
 
     At least one of ``data_version_id`` or ``run_id`` should be set.
 
@@ -141,10 +143,21 @@ async def persist_legacy_result_iter(
     dataset_columns = {
         "input_cols": input_cols,
         "output_cols": output_cols,
-        "pfas_input_mg_l_cols": list(result_iter.get("pfas_input_mg_l_cols") or []),
-        "pfas_cols": list(result_iter.get("pfas_cols") or []),
-        "pfas_out_cols": list(result_iter.get("pfas_out_cols") or []),
-        "pfbs_out_col": result_iter.get("pfbs_out_col"),
+        "composition_input_cols": list(
+            result_iter.get("composition_input_cols")
+            or result_iter.get("pfas_input_mg_l_cols")
+            or []
+        ),
+        "composition_cols": list(
+            result_iter.get("composition_cols") or result_iter.get("pfas_cols") or []
+        ),
+        "composition_output_cols": list(
+            result_iter.get("composition_output_cols")
+            or result_iter.get("pfas_out_cols")
+            or []
+        ),
+        "primary_component_out_col": result_iter.get("primary_component_out_col")
+        or result_iter.get("pfbs_out_col"),
         "regime_row_counts": dict(result_iter.get("regime_row_counts") or {}),
     }
 
