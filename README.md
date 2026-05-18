@@ -1,4 +1,8 @@
-# PFAS-ARIA
+# ### PFAS-ARIA Autonomous Research Intelligence Agent for PFAS Degradation Analysis 
+
+[![Continuous Integration](https://github.com/arpanisi/pfas-aria/actions/workflows/ci.yml/badge.svg)](https://github.com/arpanisi/pfas-aria/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/arpanisi/pfas-aria/branch/main/graph/badge.svg)](https://codecov.io/gh/arpanisi/pfas-aria)
+[![Security](https://img.shields.io/badge/security-Bandit%20%7C%20pip--audit%20%7C%20CodeQL%20%7C%20Semgrep-purple.svg)](.github/workflows/ci.yml)
 
 PFAS-ARIA is a research tool for discovering which experimental conditions make hard-to-break chemicals, such as PFAS or forever chemicals degrade faster, slower, or through different pathways. PFAS are a large family of synthetic chemicals used in many everyday products and industrial processes and hence can persist in water, soil, food systems, and the human body. Thus, understanding how to break them down matters for public health and environmental cleanup.
 
