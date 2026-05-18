@@ -1,6 +1,8 @@
 # PFAS-ARIA
 
-PFAS-ARIA is a literature-grounded signal disocvery tool for experimental PFAS degradation data. It takes structured experimental datasets, searches for statistically meaningful predictor-outcome relationships, checks those relationships against diagnostics, and grounds the strongest candidates against uploaded and retrieved literature. The goal is to create an evidence map: which experimental conditions, treatment settings, time variables, or chemical descriptors deserve closer statistical and mechanistic review.
+PFAS-ARIA is a research tool for discovering which experimental conditions make hard-to-break chemicals, such as PFAS or forever chemicals degrade faster, slower, or through different pathways. PFAS are a large family of synthetic chemicals used in many everyday products and industrial processes and hence can persist in water, soil, food systems, and the human body. Thus, understanding how to break them down matters for public health and environmental cleanup.
+
+PFAS-ARIA takes structured experimental datasets, searches for statistically meaningful predictor-outcome relationships, checks those relationships against diagnostics, and grounds the strongest candidates against uploaded and retrieved literature. The goal is to create an evidence map: which experimental conditions, treatment settings, time variables, or chemical descriptors deserve closer statistical and mechanistic review.
 
 ![PFAS-ARIA System Overview](docs/aria.png)
 
