@@ -41,11 +41,11 @@ from src.db.orm import (
     ValidationResult,
 )
 from src.db.redis_client import delete_run_status
+from src.ingestion.data_loader import DataLoader
 from src.ingestion.unified_experimental_sheet import (
     UnifiedSheetMeta,
     load_excel_bytes_with_layout,
 )
-from src.ingestion.data_loader import DataLoader
 from src.reporting.narrative import (
     aggregate_system_summary,
     clean_llm_paragraph,
@@ -556,7 +556,9 @@ def _fallback_screening_description(hyp: Hypothesis) -> str:
             f"{', '.join(variables)} are associated with the screened outcome "
             "in this regime."
         )
-    return "Selected predictors are associated with the screened outcome in this regime."
+    return (
+        "Selected predictors are associated with the screened outcome in this regime."
+    )
 
 
 async def load_grounded_bundles(
@@ -594,7 +596,9 @@ async def load_grounded_bundles(
         )
         if not mr:
             continue
-        description = clean_llm_sentence(hyp.description) or _fallback_screening_description(hyp)
+        description = clean_llm_sentence(
+            hyp.description
+        ) or _fallback_screening_description(hyp)
         rationale = (
             clean_llm_paragraph(hyp.rationale)
             or clean_llm_sentence(hyp.rationale)

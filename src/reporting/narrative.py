@@ -335,12 +335,49 @@ _REPEATED_PUNCT = re.compile(r"[^\w\s]{3,}")
 _INVALID_WORD_CHARS = re.compile(r"[*|\\@#{}_%]")
 
 # Common English stopwords excluded from the repetition check
-_STOPWORDS = frozenset({
-    "the", "a", "an", "and", "or", "of", "in", "is", "are", "was", "were",
-    "to", "for", "with", "that", "this", "it", "as", "at", "be", "by", "on",
-    "not", "from", "but", "its", "their", "which", "have", "has", "been",
-    "also", "both", "more", "than", "into", "over", "such", "these",
-})
+_STOPWORDS = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "of",
+        "in",
+        "is",
+        "are",
+        "was",
+        "were",
+        "to",
+        "for",
+        "with",
+        "that",
+        "this",
+        "it",
+        "as",
+        "at",
+        "be",
+        "by",
+        "on",
+        "not",
+        "from",
+        "but",
+        "its",
+        "their",
+        "which",
+        "have",
+        "has",
+        "been",
+        "also",
+        "both",
+        "more",
+        "than",
+        "into",
+        "over",
+        "such",
+        "these",
+    }
+)
 
 # ── Thinking-strip helpers ─────────────────────────────────────────────────────
 
@@ -422,10 +459,7 @@ def _is_clean_sentence(text: str) -> bool:
         return False
     # Dirty-word check — words containing chars that should never appear in prose
     strip_chars = ".,!?;:()[]\"'"
-    dirty = sum(
-        1 for w in words
-        if _INVALID_WORD_CHARS.search(w.strip(strip_chars))
-    )
+    dirty = sum(1 for w in words if _INVALID_WORD_CHARS.search(w.strip(strip_chars)))
     if dirty / len(words) > 0.15:
         return False
     # Repetition check — non-stopword (len≥4) appearing in >20% of all words

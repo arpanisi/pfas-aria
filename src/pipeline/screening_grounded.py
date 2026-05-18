@@ -8,10 +8,10 @@ vector store, and returns bundles for the static UI.
 
 from __future__ import annotations
 
+import re
 import secrets
 import warnings
 from dataclasses import dataclass
-import re
 from typing import cast
 
 import numpy as np
@@ -712,7 +712,9 @@ _SEARCH_STOPWORDS = {
 }
 
 
-def _keyword_terms_from_columns(y_col: str, x_cols: list[str], *, limit: int = 10) -> list[str]:
+def _keyword_terms_from_columns(
+    y_col: str, x_cols: list[str], *, limit: int = 10
+) -> list[str]:
     """Extract domain-neutral search terms from actual column names."""
     raw = " ".join([y_col, *x_cols]).lower()
     tokens = re.findall(r"[a-z][a-z0-9]{2,}", raw.replace("_", " "))
@@ -736,7 +738,10 @@ def _process_terms_from_columns(cols: str) -> list[str]:
         (("uv", "lamp", "fluence", "photolysis"), "photolysis"),
         (("ozone", "o3"), "ozonation"),
         (("sonication", "ultrasound", "acoustic"), "sonochemical treatment"),
-        (("electrochemical", "electrolysis", "current", "electrode"), "electrochemical treatment"),
+        (
+            ("electrochemical", "electrolysis", "current", "electrode"),
+            "electrochemical treatment",
+        ),
         (("thermal", "temperature", "pyrolysis", "incineration"), "thermal treatment"),
         (("catalyst", "photocatalyst", "catalytic"), "catalysis"),
         (("adsorption", "sorbent", "carbon", "resin"), "adsorption"),
