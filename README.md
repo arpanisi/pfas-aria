@@ -1,4 +1,4 @@
-# ### PFAS-ARIA Autonomous Research Intelligence Agent for PFAS Degradation Analysis 
+# PFAS-ARIA Autonomous Research Intelligence Agent for PFAS Degradation Analysis 
 
 [![Continuous Integration](https://github.com/arpanisi/pfas-aria/actions/workflows/ci.yml/badge.svg)](https://github.com/arpanisi/pfas-aria/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/arpanisi/pfas-aria/branch/main/graph/badge.svg)](https://codecov.io/gh/arpanisi/pfas-aria)
