@@ -51,7 +51,10 @@ class Retriever:
         return redis.Redis(host="localhost", port=6379, db=1)
 
     def _cache_key(self, query: str, top_k: int, min_similarity: float) -> str:
-        raw = f"rag:{query}:{top_k}:{min_similarity}:{self._store.count()}"
+        raw = (
+            f"rag:{self._store.scope_key}:{query}:"
+            f"{top_k}:{min_similarity}:{self._store.count()}"
+        )
         digest = hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()[:16]
         return f"rag:{digest}"
 

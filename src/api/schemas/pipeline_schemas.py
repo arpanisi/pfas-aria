@@ -144,6 +144,7 @@ class ScreeningBundleOut(BaseModel):
     hypothesis: ScreeningHypothesisOut
     model_result: ScreeningModelOut
     citations: list[ScreeningCitationOut]
+    output_variable: str | None = None
 
 
 class ScreeningGroundedOut(BaseModel):
@@ -182,6 +183,7 @@ class ScreeningStatsBundleOut(BaseModel):
     hypothesis: ScreeningHypothesisOut
     model_result: ScreeningModelOut
     diagnostics: dict | None = None
+    output_variable: str | None = None
 
 
 class ScreeningStatsOut(BaseModel):

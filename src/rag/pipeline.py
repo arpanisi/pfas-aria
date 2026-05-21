@@ -15,15 +15,18 @@ logger = get_logger(__name__)
 
 # Module-level cache: avoids re-parsing PDFs on every request when Mongo is current.
 # Cleared by force_rebuild=True (e.g. after a new PDF is uploaded to the corpus).
-_cached_retriever: Retriever | None = None
-_cached_corpus_bundle: CorpusBundle | None = None
+_cached_retrievers: dict[str, Retriever] = {}
+_cached_corpus_bundles: dict[str, CorpusBundle | None] = {}
 
 
-def clear_rag_cache() -> None:
+def clear_rag_cache(user_sub: str | None = None) -> None:
     """Invalidate the module-level retriever cache (call after corpus uploads)."""
-    global _cached_retriever, _cached_corpus_bundle
-    _cached_retriever = None
-    _cached_corpus_bundle = None
+    if user_sub is None:
+        _cached_retrievers.clear()
+        _cached_corpus_bundles.clear()
+        return
+    _cached_retrievers.pop(user_sub, None)
+    _cached_corpus_bundles.pop(user_sub, None)
 
 
 class RAGPipeline:
@@ -32,7 +35,9 @@ class RAGPipeline:
     Entry point: call .build() once, then .retriever for all queries.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, user_sub: str | None = None) -> None:
+        self._user_sub = user_sub
+        self._cache_key = user_sub or "global"
         self._vector_store: VectorStore | None = None
         self._retriever: Retriever | None = None
         self._corpus_bundle: CorpusBundle | None = None
@@ -43,20 +48,18 @@ class RAGPipeline:
         2. Otherwise open Mongo-backed vector store, embed any missing chunks, cache result.
         force_rebuild=True clears the cache (use after uploading new corpus PDFs).
         """
-        global _cached_retriever, _cached_corpus_bundle
-
         if force_rebuild:
-            clear_rag_cache()
+            clear_rag_cache(self._user_sub)
 
-        if _cached_retriever is not None:
-            self._retriever = _cached_retriever
-            self._corpus_bundle = _cached_corpus_bundle
+        if self._cache_key in _cached_retrievers:
+            self._retriever = _cached_retrievers[self._cache_key]
+            self._corpus_bundle = _cached_corpus_bundles.get(self._cache_key)
             logger.info("=== RAG Pipeline: Using cached retriever ===")
-            return _cached_retriever
+            return self._retriever
 
         logger.info("=== RAG Pipeline: Starting ===")
 
-        self._vector_store = VectorStore()
+        self._vector_store = VectorStore(user_sub=self._user_sub)
 
         logger.info("Warming up embedding model...")
         get_embedder()
@@ -77,8 +80,8 @@ class RAGPipeline:
             self._vector_store.count(),
         )
 
-        _cached_retriever = self._retriever
-        _cached_corpus_bundle = self._corpus_bundle
+        _cached_retrievers[self._cache_key] = self._retriever
+        _cached_corpus_bundles[self._cache_key] = self._corpus_bundle
         return self._retriever
 
     def _warm_corpus_bundle_for_summary(self) -> None:

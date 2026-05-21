@@ -77,6 +77,12 @@ class _Candidate:
     panel_diagnostic: DiagnosticResult | None = None
 
 
+def _candidate_description(c: _Candidate) -> str:
+    predictors = f"{' · '.join(c.x_cols[:6])}{' …' if len(c.x_cols) > 6 else ''}"
+    verb = "associates with" if len(c.x_cols) == 1 else "jointly associate with"
+    return f"{predictors} {verb} {c.y_col} (n={c.n_obs} observations)."
+
+
 def _fit_ols_or_ridge(
     x_mat: np.ndarray, y_vec: np.ndarray, names: list[str]
 ) -> tuple[
@@ -975,11 +981,7 @@ def run_screening_grounded_for_regime(
         mid = secrets.token_hex(4)
         is_panel_fe = c.diagnostic and c.diagnostic.model_family == "panel_fe"
         model_type = "panel_fixed_effects" if is_panel_fe else "screening_linear"
-        desc = (
-            f"{' · '.join(c.x_cols[:6])}{' …' if len(c.x_cols) > 6 else ''} "
-            f"jointly associate with {c.y_col}"
-            f"(n={c.n_obs} observations)."
-        )
+        desc = _candidate_description(c)
         rationale = (
             f"Automated screening fit (OLS or ridge fallback) with in-sample R² "
             f"{c.r_squared:.3f}. Corpus embedding resemblance peak "
@@ -1296,11 +1298,7 @@ def run_screening_stats_for_regime(
         mid = secrets.token_hex(4)
         is_panel_fe = c.diagnostic and c.diagnostic.model_family == "panel_fe"
         model_type = "panel_fixed_effects" if is_panel_fe else "screening_linear"
-        desc = (
-            f"{' · '.join(c.x_cols[:6])}{' …' if len(c.x_cols) > 6 else ''} "
-            f"jointly associate with {c.y_col}"
-            f"(n={c.n_obs} observations)."
-        )
+        desc = _candidate_description(c)
         bundles.append(
             {
                 "y_col": c.y_col,
@@ -1452,11 +1450,7 @@ def run_grounding_from_precomputed(
         hid = f"H{i}"
         oid = secrets.token_hex(4)
         mid = secrets.token_hex(4)
-        desc = (
-            f"{' · '.join(c.x_cols[:6])}{' …' if len(c.x_cols) > 6 else ''} "
-            f"jointly associate with {c.y_col}"
-            f"(n={c.n_obs} observations)."
-        )
+        desc = _candidate_description(c)
         rationale = (
             f"Automated screening fit (OLS or ridge fallback) with in-sample R² "
             f"{c.r_squared:.3f}. Corpus embedding resemblance peak "

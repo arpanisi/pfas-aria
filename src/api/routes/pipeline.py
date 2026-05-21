@@ -9,7 +9,7 @@ import asyncio
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
@@ -38,6 +38,7 @@ from src.api.schemas.pipeline_schemas import (
     ScreeningStatsIn,
     ScreeningStatsOut,
 )
+from src.api.tenant import current_user_sub, safe_upload_filename
 from src.db.orm import Hypothesis, Paper, Run
 from src.db.redis_client import (
     get_grounding_job,
@@ -66,6 +67,7 @@ from src.services.pipeline_service import (
     persist_grounded_bundles,
     persist_stats_bundles,
     persist_upload_encodings,
+    raw_upload_path,
     read_normalized_dataframe,
     run_status_from_orm,
     safe_raw_file_path,
@@ -74,7 +76,6 @@ from src.services.pipeline_service import (
     variable_layout_payload,
 )
 from src.utils.logging import get_logger
-from src.utils.paths import RAW_DIR
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/pipeline", tags=["Pipeline"])
@@ -84,6 +85,22 @@ MIN_CORPUS_PAPERS_FOR_SCREENING_GROUNDING = 1
 
 async def _set_job(job_id: str, **kwargs: object) -> None:
     await set_grounding_job(job_id, dict(kwargs))
+
+
+def _public_grounding_error(exc: Exception) -> str:
+    raw = str(exc)
+    lowered = raw.lower()
+    if (
+        "resolution lifetime expired" in lowered
+        or "dns operation timed out" in lowered
+        or "all nameservers failed" in lowered
+        or "serverselectiontimeouterror" in lowered
+    ):
+        return (
+            "Literature database temporarily unavailable. MongoDB DNS or network "
+            "resolution failed; please retry after the connection recovers."
+        )
+    return raw
 
 
 # ── Upload ────────────────────────────────────────────────────────────────────
@@ -99,7 +116,9 @@ async def upload_dataset(
     if not file.filename:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No filename provided")
 
-    suffix = file.filename.rsplit(".", 1)[-1].lower()
+    user_sub = current_user_sub(user)
+    safe_name = safe_upload_filename(file.filename)
+    suffix = safe_name.rsplit(".", 1)[-1].lower()
     if suffix not in {"csv", "xlsx", "xls", "tsv"}:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -135,8 +154,9 @@ async def upload_dataset(
         df, unified_meta=unified_meta
     )
 
-    RAW_DIR.mkdir(parents=True, exist_ok=True)
-    (RAW_DIR / file.filename).write_bytes(content)
+    dest = raw_upload_path(safe_name, user_sub=user_sub)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(content)
 
     columns = [
         ColumnInfo(
@@ -171,20 +191,17 @@ async def upload_dataset(
         upload_input_cols=upload_input_cols,
         upload_output_cols=upload_output_cols,
     )
-    user_sub = str(user.get("sub") or "anonymous")
     label_encoding_record_id = await persist_upload_encodings(
         db,
         user_sub=user_sub,
-        filename=file.filename,
+        filename=safe_name,
         encodings=encodings,
         variable_layout=layout,
     )
 
-    logger.info(
-        "Uploaded: %s (%s rows × %s cols)", file.filename, len(df), len(df.columns)
-    )
+    logger.info("Uploaded: %s (%s rows × %s cols)", safe_name, len(df), len(df.columns))
     return DatasetPreview(
-        filename=file.filename,
+        filename=safe_name,
         n_rows=len(df),
         n_cols=len(df.columns),
         columns=columns,
@@ -215,7 +232,8 @@ async def legacy_segmentation_preview(
         assign_screening_layout_from_legacy_column_slices,
     )
 
-    path = safe_raw_file_path(filename)
+    user_sub = current_user_sub(user)
+    path = safe_raw_file_path(filename, user_sub=user_sub)
     df, _hdr, unified_meta = read_normalized_dataframe(path)
 
     try:
@@ -296,12 +314,15 @@ async def automated_screening_iteration(
 ) -> AutomatedScreeningIterationOut:
     from src.pipeline.automated_screening import run_automated_screening_iteration
 
-    path = safe_raw_file_path(body.filename)
+    user_sub = current_user_sub(user)
+    path = safe_raw_file_path(body.filename, user_sub=user_sub)
 
     def _sync() -> int:
         df, _hdr, unified_meta = read_normalized_dataframe(path)
-        return run_automated_screening_iteration(
-            df, unified_meta=unified_meta, regime_id=body.regime_id
+        return int(
+            run_automated_screening_iteration(
+                df, unified_meta=unified_meta, regime_id=body.regime_id
+            )
         )
 
     n = int(await asyncio.get_event_loop().run_in_executor(None, _sync))
@@ -319,6 +340,7 @@ async def automated_screening_iteration(
             snap["screening_scope"] = "all_slices"
         db_run = Run(
             id=run_id,
+            user_sub=user_sub,
             run_name=(body.run_name or "").strip() or "Screening",
             status="screening_complete",
             outcome_variable=None,
@@ -344,7 +366,11 @@ async def screening_grounded(
     user: CurrentUser,
     db: DBSession,
 ) -> ScreeningGroundedOut:
-    n_papers = int(await db.scalar(select(func.count(Paper.id))) or 0)
+    user_sub = current_user_sub(user)
+    n_papers = int(
+        await db.scalar(select(func.count(Paper.id)).where(Paper.user_sub == user_sub))
+        or 0
+    )
     if n_papers < MIN_CORPUS_PAPERS_FOR_SCREENING_GROUNDING:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -359,14 +385,14 @@ async def screening_grounded(
             },
         )
 
-    path = safe_raw_file_path(body.filename)
+    path = safe_raw_file_path(body.filename, user_sub=user_sub)
 
     def _sync() -> dict:
         from src.pipeline.screening_grounded import run_screening_grounded_for_regime
         from src.rag.pipeline import RAGPipeline
 
         df, _hdr, unified_meta = read_normalized_dataframe(path)
-        retriever = RAGPipeline().build(force_rebuild=False)
+        retriever = RAGPipeline(user_sub=user_sub).build(force_rebuild=False)
         payload = run_screening_grounded_for_regime(
             df,
             unified_meta=unified_meta,
@@ -383,14 +409,21 @@ async def screening_grounded(
                 "display_title": "Literature Grounding of Discovered Signals",
             }
         )
-        return payload
+        return cast(dict[str, Any], payload)
 
-    raw = await asyncio.get_event_loop().run_in_executor(None, _sync)
+    try:
+        raw = await asyncio.get_event_loop().run_in_executor(None, _sync)
+    except Exception as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            _public_grounding_error(exc),
+        ) from exc
     bundles_out = [
         ScreeningBundleOut(
             hypothesis=ScreeningHypothesisOut(**b["hypothesis"]),
             model_result=ScreeningModelOut(**b["model_result"]),
             citations=[ScreeningCitationOut(**c) for c in b.get("citations", [])],
+            output_variable=b.get("y_col"),
         )
         for b in raw.get("bundles", [])
     ]
@@ -402,6 +435,10 @@ async def screening_grounded(
     if rid_in:
         run_row = await db.get(Run, rid_in)
         if not run_row:
+            extra_warnings.append(
+                f"Run id {rid_in!r} was not found; results are shown but not saved."
+            )
+        elif run_row.user_sub != user_sub:
             extra_warnings.append(
                 f"Run id {rid_in!r} was not found; results are shown but not saved."
             )
@@ -477,7 +514,11 @@ async def screening_grounded_start(
     db: DBSession,
 ) -> GroundingJobStart:
     """Start a grounding job in the background; poll /progress/{job_id} for updates."""
-    n_papers = int(await db.scalar(select(func.count(Paper.id))) or 0)
+    user_sub = current_user_sub(user)
+    n_papers = int(
+        await db.scalar(select(func.count(Paper.id)).where(Paper.user_sub == user_sub))
+        or 0
+    )
     if n_papers < MIN_CORPUS_PAPERS_FOR_SCREENING_GROUNDING:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -500,8 +541,9 @@ async def screening_grounded_start(
         result=None,
         error=None,
         started_at=time.time(),
+        user_sub=user_sub,
     )
-    asyncio.create_task(_run_grounding_job(job_id, body, n_papers))
+    asyncio.create_task(_run_grounding_job(job_id, body, n_papers, user_sub))
     return GroundingJobStart(job_id=job_id)
 
 
@@ -515,6 +557,8 @@ async def screening_grounded_progress(
     """Poll progress of a grounding job started via /start."""
     job = dict(await get_grounding_job(job_id) or {})
     if not job:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Job {job_id!r} not found")
+    if job.get("user_sub") != current_user_sub(user):
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Job {job_id!r} not found")
     eta: int | None = None
     pct = int(job.get("pct", 0))
@@ -535,7 +579,7 @@ async def screening_grounded_progress(
 
 
 async def _run_grounding_job(
-    job_id: str, body: ScreeningGroundedIn, n_papers: int
+    job_id: str, body: ScreeningGroundedIn, n_papers: int, user_sub: str
 ) -> None:
     """Background coroutine: run screening grounding and emit progress updates via Redis."""
     from src.db.postgres import AsyncSessionFactory
@@ -546,7 +590,7 @@ async def _run_grounding_job(
 
         if rid_in:
             async with AsyncSessionFactory() as session:
-                saved = await load_grounded_bundles(session, rid_in)
+                saved = await load_grounded_bundles(session, rid_in, user_sub=user_sub)
                 if saved:
                     await _set_job(
                         job_id,
@@ -557,13 +601,13 @@ async def _run_grounding_job(
                     )
                     return
 
-        path = safe_raw_file_path(body.filename)
+        path = safe_raw_file_path(body.filename, user_sub=user_sub)
 
         precomputed: list[dict] = []
         if rid_in:
             async with AsyncSessionFactory() as session:
                 precomputed = await load_stats_candidates(
-                    session, rid_in, body.regime_id
+                    session, rid_in, body.regime_id, user_sub=user_sub
                 )
 
         loop = asyncio.get_event_loop()
@@ -579,7 +623,7 @@ async def _run_grounding_job(
                 )
                 from src.rag.pipeline import RAGPipeline
 
-                retriever = RAGPipeline().build(force_rebuild=False)
+                retriever = RAGPipeline(user_sub=user_sub).build(force_rebuild=False)
                 df, _hdr, _meta = read_normalized_dataframe(path)
                 payload = run_grounding_from_precomputed(
                     precomputed,
@@ -597,7 +641,7 @@ async def _run_grounding_job(
                         "display_title": "Literature Grounding of Discovered Signals",
                     }
                 )
-                return payload
+                return cast(dict[str, Any], payload)
 
             await _set_job(job_id, pct=30, stage="Retrieving literature matches…")
 
@@ -655,7 +699,7 @@ async def _run_grounding_job(
                 from src.rag.pipeline import RAGPipeline
 
                 df, _hdr, unified_meta = read_normalized_dataframe(path)
-                retriever = RAGPipeline().build(force_rebuild=False)
+                retriever = RAGPipeline(user_sub=user_sub).build(force_rebuild=False)
                 payload = run_screening_grounded_for_regime(
                     df,
                     unified_meta=unified_meta,
@@ -672,7 +716,7 @@ async def _run_grounding_job(
                         "display_title": "Literature Grounding of Discovered Signals",
                     }
                 )
-                return payload
+                return cast(dict[str, Any], payload)
 
             stop_tick = asyncio.Event()
             tick_task = asyncio.create_task(_fitting_tick(stop_tick))
@@ -689,6 +733,7 @@ async def _run_grounding_job(
                 hypothesis=ScreeningHypothesisOut(**b["hypothesis"]),
                 model_result=ScreeningModelOut(**b["model_result"]),
                 citations=[ScreeningCitationOut(**c) for c in b.get("citations", [])],
+                output_variable=b.get("y_col"),
             )
             for b in raw.get("bundles", [])
         ]
@@ -734,6 +779,7 @@ async def _run_grounding_job(
                 ),
                 model_result=b.model_result,
                 citations=b.citations,
+                output_variable=b.output_variable,
             )
 
         bundles_out = list(
@@ -749,6 +795,10 @@ async def _run_grounding_job(
             async with AsyncSessionFactory() as session:
                 run_row = await session.get(Run, rid_in)
                 if not run_row:
+                    extra_warnings.append(
+                        f"Run id {rid_in!r} was not found; results shown but not saved."
+                    )
+                elif run_row.user_sub != user_sub:
                     extra_warnings.append(
                         f"Run id {rid_in!r} was not found; results shown but not saved."
                     )
@@ -829,7 +879,13 @@ async def _run_grounding_job(
 
     except Exception as e:
         logger.error("Grounding job %s failed: %s", job_id, e)
-        await _set_job(job_id, pct=0, stage="Failed", done=True, error=str(e))
+        await _set_job(
+            job_id,
+            pct=0,
+            stage="Failed",
+            done=True,
+            error=_public_grounding_error(e),
+        )
 
 
 # ── Screening stats ───────────────────────────────────────────────────────────
@@ -842,7 +898,8 @@ async def screening_stats(
     db: DBSession,
 ) -> ScreeningStatsOut:
     """Run OLS screening for a single regime. No corpus required."""
-    path = safe_raw_file_path(body.filename)
+    user_sub = current_user_sub(user)
+    path = safe_raw_file_path(body.filename, user_sub=user_sub)
 
     def _sync() -> dict:
         from src.pipeline.screening_grounded import run_screening_stats_for_regime
@@ -860,7 +917,7 @@ async def screening_stats(
                 "display_title": "Statistical Screening Results",
             }
         )
-        return payload
+        return cast(dict[str, Any], payload)
 
     raw = await asyncio.get_event_loop().run_in_executor(None, _sync)
     bundles_out = [
@@ -868,6 +925,7 @@ async def screening_stats(
             hypothesis=ScreeningHypothesisOut(**b["hypothesis"]),
             model_result=ScreeningModelOut(**b["model_result"]),
             diagnostics=b.get("diagnostics"),
+            output_variable=b.get("y_col"),
         )
         for b in raw.get("bundles", [])
     ]
@@ -876,8 +934,12 @@ async def screening_stats(
     rid_in = (body.run_id or "").strip()
     if rid_in and bundles_out:
         run_row = await db.get(Run, rid_in)
-        if run_row and screening_run_matches_grounding_payload(
-            run_row, filename=body.filename, regime_id=body.regime_id
+        if (
+            run_row
+            and run_row.user_sub == user_sub
+            and screening_run_matches_grounding_payload(
+                run_row, filename=body.filename, regime_id=body.regime_id
+            )
         ):
             await persist_stats_bundles(
                 db, run_row, raw.get("bundles", []), regime_id=body.regime_id
@@ -912,8 +974,9 @@ async def screening_stats(
 async def get_run_status_endpoint(
     run_id: str, user: CurrentUser, db: DBSession
 ) -> RunStatus:
+    user_sub = current_user_sub(user)
     run = await db.get(Run, run_id)
-    if not run:
+    if not run or run.user_sub != user_sub:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Run {run_id} not found")
     hyp_count = int(
         await db.scalar(
@@ -938,7 +1001,13 @@ async def get_run_status_endpoint(
 
 @router.get("/runs", response_model=list[RunStatus])
 async def list_runs(user: CurrentUser, db: DBSession) -> list[RunStatus]:
-    result = await db.execute(select(Run).order_by(Run.created_at.desc()).limit(50))
+    user_sub = current_user_sub(user)
+    result = await db.execute(
+        select(Run)
+        .where(Run.user_sub == user_sub)
+        .order_by(Run.created_at.desc())
+        .limit(50)
+    )
     runs = result.scalars().all()
     if not runs:
         return []
@@ -960,11 +1029,12 @@ async def list_runs(user: CurrentUser, db: DBSession) -> list[RunStatus]:
 async def delete_all_screening_runs(
     user: CurrentUser, db: DBSession
 ) -> ClearScreeningRunsOut:
-    result = await db.execute(select(Run))
+    user_sub = current_user_sub(user)
+    result = await db.execute(select(Run).where(Run.user_sub == user_sub))
     deleted = 0
     for row in result.scalars().all():
         if snapshot_dict(row).get("run_kind") == "screening":
-            await delete_run_record(db, row.id)
+            await delete_run_record(db, row.id, user_sub=user_sub)
             deleted += 1
     logger.info("Cleared %s screening runs user=%s", deleted, user.get("sub", "?"))
     return ClearScreeningRunsOut(deleted=deleted)
@@ -974,6 +1044,7 @@ async def delete_all_screening_runs(
     "/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
 )
 async def delete_run(run_id: str, user: CurrentUser, db: DBSession) -> None:
-    if not await delete_run_record(db, run_id):
+    user_sub = current_user_sub(user)
+    if not await delete_run_record(db, run_id, user_sub=user_sub):
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Run {run_id} not found")
     logger.info("Deleted run %s user=%s", run_id, user.get("sub", "?"))

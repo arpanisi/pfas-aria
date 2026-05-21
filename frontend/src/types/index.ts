@@ -84,6 +84,7 @@ export interface ScreeningBundle {
   hypothesis: Hypothesis;
   model_result: ModelResult;
   citations: Citation[];
+  output_variable?: string | null;
 }
 
 export interface ScreeningGroundedResponse {
@@ -273,6 +274,7 @@ export interface ScreeningStatsBundle {
   hypothesis: Hypothesis;
   model_result: ModelResult;
   diagnostics?: BundleDiagnostics;
+  output_variable?: string | null;
 }
 
 export interface ScreeningStatsResponse {

@@ -30,6 +30,7 @@ from src.api.schemas.pipeline_schemas import (
     ScreeningHypothesisOut,
     ScreeningModelOut,
 )
+from src.api.tenant import safe_upload_filename, tenant_storage_key
 from src.db.orm import (
     Citation,
     DatasetUploadEncoding,
@@ -119,13 +120,19 @@ def dataset_preview_rows(df: pd.DataFrame, *, limit: int = 100) -> list[dict[str
     return out
 
 
-def safe_raw_file_path(filename: str) -> Path:
+def raw_upload_path(filename: str, *, user_sub: str) -> Path:
+    return cast(
+        Path, RAW_DIR / tenant_storage_key(user_sub) / safe_upload_filename(filename)
+    )
+
+
+def safe_raw_file_path(filename: str, *, user_sub: str) -> Path:
     if not filename or ".." in filename or filename.startswith(("/", "\\")):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid filename")
-    name = Path(filename).name
+    name = safe_upload_filename(filename)
     if not name:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid filename")
-    p = (RAW_DIR / name).resolve()
+    p = raw_upload_path(name, user_sub=user_sub).resolve()
     try:
         p.relative_to(RAW_DIR.resolve())
     except ValueError:
@@ -478,8 +485,12 @@ async def persist_stats_bundles(
 
 
 async def load_stats_candidates(
-    db: AsyncSession, run_id: str, regime_id: int
+    db: AsyncSession, run_id: str, regime_id: int, *, user_sub: str | None = None
 ) -> list[dict]:
+    if user_sub is not None:
+        run_row = await db.get(Run, run_id)
+        if not run_row or run_row.user_sub != user_sub:
+            return []
     regime_label = f"regime_{regime_id}"
     hyp_rows = (
         (await db.execute(select(Hypothesis).where(Hypothesis.run_id == run_id)))
@@ -562,10 +573,12 @@ def _fallback_screening_description(hyp: Hypothesis) -> str:
 
 
 async def load_grounded_bundles(
-    db: AsyncSession, run_id: str
+    db: AsyncSession, run_id: str, *, user_sub: str | None = None
 ) -> ScreeningGroundedOut | None:
     run_row = await db.get(Run, run_id)
     if not run_row:
+        return None
+    if user_sub is not None and run_row.user_sub != user_sub:
         return None
     snap = snapshot_dict(run_row)
     if snap.get("screening_phase") != "grounding_completed":
@@ -708,9 +721,13 @@ async def load_grounded_bundles(
     )
 
 
-async def delete_run_record(db: AsyncSession, run_id: str) -> bool:
+async def delete_run_record(
+    db: AsyncSession, run_id: str, *, user_sub: str | None = None
+) -> bool:
     run = await db.get(Run, run_id)
     if not run:
+        return False
+    if user_sub is not None and run.user_sub != user_sub:
         return False
     await delete_hypothesis_subtree(db, run_id)
     await db.execute(delete(Regime).where(Regime.run_id == run_id))

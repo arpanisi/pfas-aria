@@ -657,6 +657,14 @@ export function ScreeningResults() {
                 {hypotheses.map((hypothesis) => {
                   const model = modelForHypothesis(hypothesis, modelResults);
                   const selected = selectedHyp?.id === hypothesis.id;
+                  const bundle =
+                    bundles.find((b) => b.hypothesis.id === hypothesis.id) ??
+                    bundles.find(
+                      (b) =>
+                        b.hypothesis.hypothesis_id ===
+                        hypothesis.hypothesis_id,
+                    );
+                  const outputVariable = bundle?.output_variable ?? null;
                   return (
                     <button
                       key={hypothesis.id}
@@ -677,12 +685,22 @@ export function ScreeningResults() {
                           "Selected predictors are associated with the screened outcome in this regime.",
                         )}
                       </p>
-                      <div className="chip-row">
-                        {hypothesis.primary_variables
-                          .slice(0, 5)
-                          .map((variable) => (
-                            <span key={variable}>{variable}</span>
-                          ))}
+                      <div className="hypothesis-variable-row">
+                        <div className="chip-row">
+                          {hypothesis.primary_variables
+                            .slice(0, 5)
+                            .map((variable) => (
+                              <span key={variable}>{variable}</span>
+                            ))}
+                        </div>
+                        {outputVariable && (
+                          <span
+                            className="output-variable-chip"
+                            title={`Output variable: ${outputVariable}`}
+                          >
+                            {outputVariable}
+                          </span>
+                        )}
                       </div>
                       <div className="hypothesis-evidence">
                         <div>
@@ -717,93 +735,100 @@ export function ScreeningResults() {
               </div>
             </div>
 
-            <div className="section-card">
-              <div className="section-head">
-                <div>
-                  <div className="eyebrow">selected result</div>
-                  <h2>
-                    {selectedHyp?.hypothesis_id ?? "Hypothesis"}: statistical
-                    evidence
-                  </h2>
-                </div>
-                <div className="model-pill">
-                  {selectedModel?.model_type?.replace(/_/g, " ") ??
-                    "model pending"}
-                </div>
-              </div>
-
-              <div className="evidence-layout">
-                <div className="interpretation-card">
-                  <h3>Interpretation</h3>
-                  <p>
-                    {safeLlmText(
-                      selectedHyp?.rationale,
-                      "Select a hypothesis to see how the automated fit aligns with retrieved corpus passages.",
-                      { paragraph: true },
-                    )}
-                  </p>
-                  <div className="validation-list">
-                    {topValidation(selectedModel, matchScore).map((line) => (
-                      <span key={line}>{line}</span>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="effect-card">
-                  <h3>Parameter effects</h3>
-                  <div className="effect-list refined">
-                    {effects.map((effect) => (
-                      <div key={effect.variable} className="effect-row refined">
-                        <div className="effect-name">{effect.variable}</div>
-                        <div className="effect-axis">
-                          <i />
-                          <b
-                            className={
-                              effect.coefficient >= 0 ? "positive" : "negative"
-                            }
-                            style={{ width: `${effect.width}%` }}
-                          />
-                        </div>
-                        <div
-                          className={
-                            effect.coefficient >= 0
-                              ? "effect-value positive"
-                              : "effect-value negative"
-                          }
-                        >
-                          {formatCoef(effect.coefficient)}
-                        </div>
-                        <div
-                          className={`effect-sig ${effect.sigLabel === "ns" ? "muted" : ""}`}
-                        >
-                          {effect.sigLabel}
-                        </div>
-                      </div>
-                    ))}
-                    {!effects.length && (
-                      <div className="empty-inline">
-                        Model coefficients will appear here when a hypothesis is
-                        selected.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
 
           <aside className="grounding-panel">
-            <div className="section-head compact">
-              <div>
-                <div className="eyebrow">Literature support</div>
-                <h2>Ranked by resemblance</h2>
+            <div className="grounding-sticky-head">
+              <div className="grounding-selected-result">
+                <div className="grounding-selected-title">
+                  <div>
+                    <div className="eyebrow">selected hypothesis</div>
+                    <h2>
+                      {selectedHyp?.hypothesis_id ?? "Hypothesis"}: statistical
+                      evidence
+                    </h2>
+                  </div>
+                  <div className="model-pill">
+                    {selectedModel?.model_type?.replace(/_/g, " ") ??
+                      "model pending"}
+                  </div>
+                </div>
+
+                <div className="grounding-selected-body">
+                  <div className="grounding-mini-block">
+                    <h3>Hypothesis</h3>
+                    <p>
+                      {safeLlmText(
+                        selectedHyp?.description,
+                        "Selected predictors are associated with the screened outcome in this regime.",
+                      )}
+                    </p>
+                  </div>
+
+                  <div className="grounding-mini-block">
+                    <h3>Interpretation</h3>
+                    <p>
+                      {safeLlmText(
+                        selectedHyp?.rationale,
+                        "Select a hypothesis to see how the automated fit aligns with retrieved corpus passages.",
+                        { paragraph: true },
+                      )}
+                    </p>
+                    <div className="grounding-validation-list">
+                      {topValidation(selectedModel, matchScore).map((line) => (
+                        <span key={line}>{line}</span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grounding-mini-block">
+                    <h3>Parameter effects</h3>
+                    <div className="grounding-effect-list">
+                      {effects.map((effect) => (
+                        <div
+                          key={effect.variable}
+                          className="grounding-effect-row"
+                        >
+                          <div className="effect-name">{effect.variable}</div>
+                          <div
+                            className={
+                              effect.coefficient >= 0
+                                ? "effect-value positive"
+                                : "effect-value negative"
+                            }
+                          >
+                            {formatCoef(effect.coefficient)}
+                          </div>
+                          <div
+                            className={`effect-sig ${effect.sigLabel === "ns" ? "muted" : ""}`}
+                          >
+                            {effect.sigLabel}
+                          </div>
+                        </div>
+                      ))}
+                      {!effects.length && (
+                        <div className="empty-inline">
+                          Model coefficients will appear here when a hypothesis
+                          is selected.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="grounding-count">{grounding.length}</div>
+              <div className="section-head compact">
+                <div>
+                  <div className="eyebrow">Literature support</div>
+                  <h2>Ranked by resemblance</h2>
+                </div>
+                <div className="grounding-count">{grounding.length}</div>
+              </div>
+              <p className="grounding-note">
+                Chunks from your uploaded corpus most similar to this
+                hypothesis&apos;s mechanistic query (embedding similarity).
+              </p>
             </div>
-            <p className="grounding-note">
-              Chunks from your uploaded corpus most similar to this
-              hypothesis&apos;s mechanistic query (embedding similarity).
-            </p>
+            <div className="grounding-list-label">Selected literature</div>
             <div className="grounding-list">
               {grounding.map((item, index) => (
                 <article key={item.id} className="grounding-card">
