@@ -39,8 +39,7 @@ DATASET = (
     / "data/raw/user_b5f8dbd7bd0fd8e6d970fbe5/Copy of Unified Experimental Data Spreadsheet 2.xlsx"
 )
 PDF = (
-    ROOT
-    / "data/corpus/user_b5f8dbd7bd0fd8e6d970fbe5/"
+    ROOT / "data/corpus/user_b5f8dbd7bd0fd8e6d970fbe5/"
     "Development and Application of Different Non_thermal Plasma Reactors for the Removal of Perfluorosurfactants in Water_A Comparative Study.pdf"
 )
 USER_A = "deployment_e2e_user_a"
@@ -79,7 +78,9 @@ def _cleanup_raw_uploads(filename: str) -> None:
             tenant_dir.rmdir()
 
 
-def test_two_dummy_users_full_pipeline_and_tenant_isolation(monkeypatch: pytest.MonkeyPatch):
+def test_two_dummy_users_full_pipeline_and_tenant_isolation(
+    monkeypatch: pytest.MonkeyPatch,
+):
     if not DATASET.exists():
         pytest.skip(f"Deployment E2E dataset not found: {DATASET}")
     if not PDF.exists():

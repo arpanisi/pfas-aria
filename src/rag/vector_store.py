@@ -184,7 +184,9 @@ class VectorStore:
                     "limit": max(top_k * 20, 100),
                 }
             }
-            rows = list(self._coll.aggregate(self._search_pipeline(fallback_stage, top_k=top_k)))
+            rows = list(
+                self._coll.aggregate(self._search_pipeline(fallback_stage, top_k=top_k))
+            )
 
         chunks: list[RetrievedChunk] = []
         for r in rows:

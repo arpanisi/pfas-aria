@@ -110,6 +110,7 @@ async def add_security_headers(request: Request, call_next) -> Response:
         )
     return response
 
+
 # ── CORS ──────────────────────────────────────────────────────────────────────
 # FRONTEND_URL is set per-platform in environment variables (e.g. render.yaml).
 # Security is handled by Clerk JWT, not origin filtering.
