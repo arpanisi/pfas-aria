@@ -7,8 +7,8 @@ from logging.config import fileConfig
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
-from src.api.database import Base
-from src.api.models import orm  # noqa: F401 — import models to register them
+from src.db import orm  # noqa: F401 — import models to register them
+from src.db.postgres import Base
 
 config = context.config
 if config.config_file_name is not None:
@@ -16,10 +16,9 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://postgres:postgres@localhost:5432/pfas_aria",
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is required for Alembic migrations")
 
 
 def run_migrations_offline() -> None:
