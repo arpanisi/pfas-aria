@@ -15,21 +15,21 @@ from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-SentenceTransformer: Any | None = None
+_sentence_transformer_cls: Any | None = None
 _instance: Embedder | None = None
 
 
 def _load_sentence_transformer() -> Any:
-    global SentenceTransformer
-    if SentenceTransformer is None:
+    global _sentence_transformer_cls
+    if _sentence_transformer_cls is None:
         try:
-            from sentence_transformers import SentenceTransformer as sentence_transformer
+            from sentence_transformers import SentenceTransformer
         except ImportError as exc:
             raise RuntimeError(
                 "RAG embeddings require the optional sentence-transformers package"
             ) from exc
-        SentenceTransformer = sentence_transformer
-    return SentenceTransformer
+        _sentence_transformer_cls = SentenceTransformer
+    return _sentence_transformer_cls
 
 
 class Embedder:
