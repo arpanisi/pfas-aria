@@ -11,7 +11,7 @@ import binascii
 import json
 import os
 import time
-from typing import Annotated
+from typing import Annotated, cast
 
 import requests
 from cryptography.exceptions import InvalidSignature
@@ -72,11 +72,18 @@ def _base64url_decode(value: str) -> bytes:
         raise InvalidTokenError("Token contains invalid base64url") from exc
 
 
-def _decode_token_part(value: str) -> dict:
+JWTPayload = dict[str, object]
+JWK = dict[str, object]
+
+
+def _decode_token_part(value: str) -> JWTPayload:
     try:
-        return json.loads(_base64url_decode(value))
+        decoded = json.loads(_base64url_decode(value))
     except (ValueError, TypeError) as e:
         raise InvalidTokenError("Token contains invalid JSON") from e
+    if not isinstance(decoded, dict):
+        raise InvalidTokenError("Token segment must decode to a JSON object")
+    return cast(JWTPayload, decoded)
 
 
 def _get_jwks() -> dict[str, object]:
@@ -93,14 +100,17 @@ def _get_jwks() -> dict[str, object]:
     return _jwks_cache
 
 
-def _get_jwk(kid: str) -> dict:
-    for jwk in _get_jwks()["keys"]:
+def _get_jwk(kid: str) -> JWK:
+    keys = _get_jwks().get("keys")
+    if not isinstance(keys, list):
+        raise InvalidTokenError("JWKS endpoint returned an invalid key list")
+    for jwk in keys:
         if isinstance(jwk, dict) and jwk.get("kid") == kid:
-            return jwk
+            return cast(JWK, jwk)
     raise InvalidTokenError("Token signing key was not found")
 
 
-def _public_key_from_jwk(jwk: dict) -> rsa.RSAPublicKey:
+def _public_key_from_jwk(jwk: JWK) -> rsa.RSAPublicKey:
     try:
         n = int.from_bytes(_base64url_decode(str(jwk["n"])), "big")
         e = int.from_bytes(_base64url_decode(str(jwk["e"])), "big")
@@ -109,7 +119,7 @@ def _public_key_from_jwk(jwk: dict) -> rsa.RSAPublicKey:
     return rsa.RSAPublicNumbers(e=e, n=n).public_key()
 
 
-def _decode_and_verify_rs256(token: str) -> dict:
+def _decode_and_verify_rs256(token: str) -> JWTPayload:
     parts = token.split(".")
     if len(parts) != 3:
         raise InvalidTokenError("Token must have three JWT segments")
@@ -133,6 +143,8 @@ def _decode_and_verify_rs256(token: str) -> dict:
 
     exp = payload.get("exp")
     if exp is not None:
+        if not isinstance(exp, int | float | str):
+            raise InvalidTokenError("Token expiration is invalid")
         try:
             expires_at = float(exp)
         except (TypeError, ValueError) as exc:
@@ -145,7 +157,7 @@ def _decode_and_verify_rs256(token: str) -> dict:
 
 async def verify_clerk_token(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
-) -> dict:
+) -> JWTPayload:
     """
     Verify a Clerk JWT token using Clerk's JWKS endpoint.
     Returns the decoded payload on success.
@@ -188,4 +200,4 @@ async def verify_clerk_token(
 
 
 # Type alias for dependency injection
-CurrentUser = Annotated[dict, Depends(verify_clerk_token)]
+CurrentUser = Annotated[JWTPayload, Depends(verify_clerk_token)]
