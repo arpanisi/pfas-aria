@@ -6,15 +6,30 @@ Singleton pattern — model loads once and is reused across all agents.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 from src.utils.config import get_settings
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+SentenceTransformer: Any | None = None
 _instance: Embedder | None = None
+
+
+def _load_sentence_transformer() -> Any:
+    global SentenceTransformer
+    if SentenceTransformer is None:
+        try:
+            from sentence_transformers import SentenceTransformer as sentence_transformer
+        except ImportError as exc:
+            raise RuntimeError(
+                "RAG embeddings require the optional sentence-transformers package"
+            ) from exc
+        SentenceTransformer = sentence_transformer
+    return SentenceTransformer
 
 
 class Embedder:
@@ -23,7 +38,7 @@ class Embedder:
     def __init__(self) -> None:
         cfg = get_settings().embeddings
         logger.info(f"Loading embedding model: {cfg.model} on {cfg.device}")
-        self._model = SentenceTransformer(cfg.model, device=cfg.device)
+        self._model = _load_sentence_transformer()(cfg.model, device=cfg.device)
         self._model_name = cfg.model
         logger.info("Embedding model ready")
 

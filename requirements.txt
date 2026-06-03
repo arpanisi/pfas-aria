@@ -5,12 +5,10 @@ pydantic-settings==2.3.0
 PyYAML==6.0.1
 loguru==0.7.2
 
-# ── LLM (OpenRouter / RunPod via HTTP; optional local Ollama) ─────────────────
-ollama==0.2.1
-
-# ── Embeddings (MongoDB stores vectors; no Chroma) ────────────────────────────
-sentence-transformers==5.5.0
-transformers==5.0.0rc3
+# ── LLM / embeddings ─────────────────────────────────────────────────────────
+# Local Ollama uses the HTTP API via requests.
+# sentence-transformers/transformers/torch are optional for RAG embeddings and
+# intentionally omitted from the base install until their no-fix advisories clear.
 
 # ── Data + ML ────────────────────────────────────────────────────────────────
 pandas==2.2.2
@@ -43,12 +41,11 @@ requests==2.34.2
 fastapi==0.136.1
 uvicorn[standard]==0.30.1
 python-multipart==0.0.27
-python-jose[cryptography]==3.5.0
 httpx==0.27.0
 asyncpg==0.29.0
 sqlalchemy[asyncio]==2.0.30
 alembic==1.13.1
-PyJWT[crypto]>=2.8.0
+cryptography==48.0.0
 
 # ── Reporting ────────────────────────────────────────────────────────────────
 jinja2==3.1.6
