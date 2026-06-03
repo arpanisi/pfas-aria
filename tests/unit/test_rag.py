@@ -13,40 +13,40 @@ from src.rag.vector_store import RetrievedChunk
 
 
 class TestEmbedder:
-    @patch("sentence_transformers.SentenceTransformer")
+    @patch("src.rag.embedder._load_sentence_transformer")
     @patch("src.rag.embedder.get_settings")
-    def test_embed_returns_correct_shape(self, mock_settings, mock_st):
+    def test_embed_returns_correct_shape(self, mock_settings, mock_load_model):
         mock_settings.return_value.embeddings.model = "all-MiniLM-L6-v2"
         mock_settings.return_value.embeddings.device = "cpu"
 
         mock_model = MagicMock()
         mock_model.encode.return_value = np.random.rand(3, 384).astype(np.float32)
-        mock_st.return_value = mock_model
+        mock_load_model.return_value.return_value = mock_model
 
         embedder = Embedder()
         result = embedder.embed(["text1", "text2", "text3"])
         assert result.shape == (3, 384)
 
-    @patch("sentence_transformers.SentenceTransformer")
+    @patch("src.rag.embedder._load_sentence_transformer")
     @patch("src.rag.embedder.get_settings")
-    def test_embed_one_returns_1d(self, mock_settings, mock_st):
+    def test_embed_one_returns_1d(self, mock_settings, mock_load_model):
         mock_settings.return_value.embeddings.model = "all-MiniLM-L6-v2"
         mock_settings.return_value.embeddings.device = "cpu"
 
         mock_model = MagicMock()
         mock_model.encode.return_value = np.random.rand(1, 384).astype(np.float32)
-        mock_st.return_value = mock_model
+        mock_load_model.return_value.return_value = mock_model
 
         embedder = Embedder()
         result = embedder.embed_one("single text")
         assert result.ndim == 1
 
-    @patch("sentence_transformers.SentenceTransformer")
+    @patch("src.rag.embedder._load_sentence_transformer")
     @patch("src.rag.embedder.get_settings")
-    def test_similarity_range(self, mock_settings, mock_st):
+    def test_similarity_range(self, mock_settings, mock_load_model):
         mock_settings.return_value.embeddings.model = "all-MiniLM-L6-v2"
         mock_settings.return_value.embeddings.device = "cpu"
-        mock_st.return_value = MagicMock()
+        mock_load_model.return_value.return_value = MagicMock()
 
         embedder = Embedder()
         a = np.array([1.0, 0.0, 0.0])
@@ -56,12 +56,12 @@ class TestEmbedder:
         c = np.array([0.0, 1.0, 0.0])
         assert embedder.similarity(a, c) == pytest.approx(0.0)
 
-    @patch("sentence_transformers.SentenceTransformer")
+    @patch("src.rag.embedder._load_sentence_transformer")
     @patch("src.rag.embedder.get_settings")
-    def test_empty_list_raises(self, mock_settings, mock_st):
+    def test_empty_list_raises(self, mock_settings, mock_load_model):
         mock_settings.return_value.embeddings.model = "all-MiniLM-L6-v2"
         mock_settings.return_value.embeddings.device = "cpu"
-        mock_st.return_value = MagicMock()
+        mock_load_model.return_value.return_value = MagicMock()
 
         embedder = Embedder()
         with pytest.raises(ValueError):
