@@ -128,9 +128,7 @@ grounded in scientific reasoning. Always respond with valid JSON."""
                     "treating as cross-sectional data."
                 )
             else:
-                reasoning = (
-                    "No entity or time column detected — treating as cross-sectional data."
-                )
+                reasoning = "No entity or time column detected — treating as cross-sectional data."
             return PanelStructure(
                 is_panel=False,
                 entity_column=entity_col,
