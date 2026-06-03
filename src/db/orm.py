@@ -56,11 +56,13 @@ def _now() -> datetime:
 class Run(Base):
     __tablename__ = "runs"
     __table_args__ = (
+        Index("ix_runs_user_sub", "user_sub"),
         Index("ix_runs_status", "status"),
         Index("ix_runs_created_at", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    user_sub: Mapped[str] = mapped_column(String(255), nullable=False, default="legacy")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     run_name: Mapped[str] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(50), default="initializing")
@@ -141,9 +143,13 @@ class DatasetUploadEncoding(Base):
 
 class Paper(Base):
     __tablename__ = "papers"
-    __table_args__ = (UniqueConstraint("content_hash"),)
+    __table_args__ = (
+        UniqueConstraint("user_sub", "content_hash", name="uq_papers_user_hash"),
+        Index("ix_papers_user_sub", "user_sub"),
+    )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    user_sub: Mapped[str] = mapped_column(String(255), nullable=False, default="legacy")
     filename: Mapped[str] = mapped_column(String(255))
     content_hash: Mapped[str] = mapped_column(String(64))
     title: Mapped[str] = mapped_column(Text, nullable=True)

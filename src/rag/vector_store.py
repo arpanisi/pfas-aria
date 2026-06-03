@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Any
 
 from pymongo import MongoClient, UpdateOne
+from pymongo.errors import OperationFailure
 
 from src.ingestion.corpus_loader import Document
 from src.rag.embedder import get_embedder
@@ -46,7 +47,7 @@ class VectorStore:
     search over stored vectors.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, user_sub: str | None = None) -> None:
         cfg = get_settings().vector_store
         if (cfg.provider or "").lower() != "mongodb":
             raise VectorStoreError(
@@ -55,6 +56,7 @@ class VectorStore:
             )
         self._collection_name = cfg.collection_name
         self._vector_search_index = cfg.atlas_vector_index
+        self._user_sub = user_sub
         self._client: MongoClient[Any] = MongoClient(
             MONGO_URL, serverSelectionTimeoutMS=5000
         )
@@ -69,11 +71,18 @@ class VectorStore:
             n,
         )
 
+    @property
+    def scope_key(self) -> str:
+        return self._user_sub or "global"
+
+    def _tenant_filter(self) -> dict[str, Any]:
+        return {"user_sub": self._user_sub} if self._user_sub else {}
+
     def ensure_all_chunks_embedded(self, *, force_rebuild: bool = False) -> int:
         """Embed every chunk missing vectors or on wrong model. Returns rows updated."""
         if force_rebuild:
             self._coll.update_many(
-                {},
+                self._tenant_filter(),
                 {
                     "$set": {
                         "embedding": None,
@@ -85,6 +94,7 @@ class VectorStore:
             logger.info("Cleared all chunk embeddings for rebuild")
 
         query: dict[str, Any] = {
+            **self._tenant_filter(),
             "text": {"$exists": True, "$nin": [None, ""]},
             "$or": [
                 {"embedding": None},
@@ -144,29 +154,42 @@ class VectorStore:
                 "Vector store is empty. Upload PDFs and ensure Mongo chunks are embedded."
             )
         q_vec: list[float] = self._embedder.embed_one(query).astype(float).tolist()
-        pipeline = [
-            {
+        vector_stage: dict[str, Any] = {
+            "$vectorSearch": {
+                "index": self._vector_search_index,
+                "path": "embedding",
+                "queryVector": q_vec,
+                "numCandidates": max(top_k * 10, 100),
+                "limit": top_k,
+            }
+        }
+        if self._user_sub:
+            vector_stage["$vectorSearch"]["filter"] = {"user_sub": self._user_sub}
+        pipeline = self._search_pipeline(vector_stage, top_k=top_k)
+        try:
+            rows = list(self._coll.aggregate(pipeline))
+        except OperationFailure as exc:
+            if not self._is_missing_vector_filter_index_error(exc):
+                raise
+            logger.warning(
+                "Atlas vector index does not support user_sub filtering; "
+                "falling back to post-vector tenant match."
+            )
+            fallback_stage = {
                 "$vectorSearch": {
                     "index": self._vector_search_index,
                     "path": "embedding",
                     "queryVector": q_vec,
-                    "numCandidates": max(top_k * 10, 100),
-                    "limit": top_k,
+                    "numCandidates": max(top_k * 50, 500),
+                    "limit": max(top_k * 20, 100),
                 }
-            },
-            {
-                "$project": {
-                    "text": 1,
-                    "filename": 1,
-                    "title": 1,
-                    "chunk_index": 1,
-                    "metadata": 1,
-                    "score": {"$meta": "vectorSearchScore"},
-                }
-            },
-        ]
+            }
+            rows = list(
+                self._coll.aggregate(self._search_pipeline(fallback_stage, top_k=top_k))
+            )
+
         chunks: list[RetrievedChunk] = []
-        for r in self._coll.aggregate(pipeline):
+        for r in rows:
             sim = float(r.get("score", 0.0))
             if sim < min_similarity:
                 continue
@@ -186,6 +209,29 @@ class VectorStore:
                 )
             )
         return chunks
+
+    def _search_pipeline(
+        self, vector_stage: dict[str, Any], *, top_k: int
+    ) -> list[dict[str, Any]]:
+        return [
+            vector_stage,
+            *([{"$match": {"user_sub": self._user_sub}}] if self._user_sub else []),
+            {
+                "$project": {
+                    "text": 1,
+                    "filename": 1,
+                    "title": 1,
+                    "chunk_index": 1,
+                    "metadata": 1,
+                    "score": {"$meta": "vectorSearchScore"},
+                }
+            },
+            {"$limit": top_k},
+        ]
+
+    @staticmethod
+    def _is_missing_vector_filter_index_error(exc: OperationFailure) -> bool:
+        return "needs to be indexed as filter" in str(exc)
 
     def search_batch(
         self,
@@ -216,11 +262,12 @@ class VectorStore:
         return int(
             self._coll.count_documents(
                 {
+                    **self._tenant_filter(),
                     "embedding": {
                         "$exists": True,
                         "$type": "array",
                         "$not": {"$size": 0},
-                    }
+                    },
                 }
             )
         )

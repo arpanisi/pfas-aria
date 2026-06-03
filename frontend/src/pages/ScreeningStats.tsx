@@ -819,9 +819,11 @@ export function ScreeningStats() {
                 {hypotheses.map((hypothesis) => {
                   const model = modelForHypothesis(hypothesis, modelResults);
                   const diag = diagMap[hypothesis.id];
+                  const bundle = bundles.find((b) => b.hypothesis.id === hypothesis.id);
                   const selected =
                     selectedHyp?.id === hypothesis.id ||
                     (!selectedHyp && hypothesis === hypotheses[0]);
+                  const outputVariable = bundle?.output_variable ?? null;
                   return (
                     <button
                       key={hypothesis.id}
@@ -836,10 +838,20 @@ export function ScreeningStats() {
                         </b>
                       </div>
                       <p>{hypothesis.description}</p>
-                      <div className="chip-row">
-                        {hypothesis.primary_variables.slice(0, 5).map((v) => (
-                          <span key={v}>{v}</span>
-                        ))}
+                      <div className="hypothesis-variable-row">
+                        <div className="chip-row">
+                          {hypothesis.primary_variables.slice(0, 5).map((v) => (
+                            <span key={v}>{v}</span>
+                          ))}
+                        </div>
+                        {outputVariable && (
+                          <span
+                            className="output-variable-chip"
+                            title={`Output variable: ${outputVariable}`}
+                          >
+                            {outputVariable}
+                          </span>
+                        )}
                       </div>
                       <div className="hypothesis-evidence">
                         <div>
@@ -888,7 +900,7 @@ export function ScreeningStats() {
               />
             )}
 
-            <aside className="grounding-panel">
+            <aside className="grounding-panel stats-grounding-ribbon">
               <div className="section-head compact">
                 <div>
                   <div className="eyebrow">Next step</div>
@@ -910,9 +922,6 @@ export function ScreeningStats() {
                 >
                   Run literature grounding
                 </button>
-                <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>
-                  Requires at least 3 PDF papers uploaded to the corpus.
-                </p>
               </div>
             </aside>
           </div>

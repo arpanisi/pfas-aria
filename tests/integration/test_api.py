@@ -41,6 +41,25 @@ class TestCORS:
         assert "access-control-allow-origin" not in response.headers
 
 
+# ── Security headers ──────────────────────────────────────────────────────────
+
+
+class TestSecurityHeaders:
+    def test_health_has_security_headers(self):
+        response = client.get("/health")
+        assert response.status_code == 200
+        assert response.headers["content-security-policy"] == (
+            "default-src 'none'; frame-ancestors 'none'; "
+            "base-uri 'none'; form-action 'none'"
+        )
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["x-frame-options"] == "DENY"
+        assert response.headers["referrer-policy"] == "no-referrer"
+        assert "camera=()" in response.headers["permissions-policy"]
+        assert response.headers["cross-origin-opener-policy"] == "same-origin"
+        assert response.headers["cross-origin-resource-policy"] == "same-origin"
+
+
 # ── Routes exist (not 404) ────────────────────────────────────────────────────
 
 

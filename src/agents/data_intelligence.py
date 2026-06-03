@@ -121,7 +121,14 @@ grounded in scientific reasoning. Always respond with valid JSON."""
         entity_col = bundle.entity_id_column
         time_col = bundle.time_column
 
-        if not entity_col or not time_col:
+        if not entity_col or not time_col or entity_col not in df.columns:
+            if entity_col and entity_col not in df.columns:
+                reasoning = (
+                    f"Entity column '{entity_col}' was not present in the dataset — "
+                    "treating as cross-sectional data."
+                )
+            else:
+                reasoning = "No entity or time column detected — treating as cross-sectional data."
             return PanelStructure(
                 is_panel=False,
                 entity_column=entity_col,
@@ -131,7 +138,7 @@ grounded in scientific reasoning. Always respond with valid JSON."""
                 balanced=False,
                 recommended_model="ols",
                 hausman_applicable=False,
-                reasoning="No entity or time column detected — treating as cross-sectional data.",
+                reasoning=reasoning,
             )
 
         n_entities = df[entity_col].nunique()

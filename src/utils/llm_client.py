@@ -7,6 +7,7 @@ Supports OpenRouter (default), Ollama (local), and RunPod (OpenAI-compatible).
 from __future__ import annotations
 
 import os
+import threading
 from typing import Any
 
 import requests
@@ -16,6 +17,51 @@ from src.utils.exceptions import LLMError
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+_rate_limited_models: set[str] = set()
+_rate_limited_models_lock = threading.Lock()
+
+
+def _ordered_unique(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        if value and value not in seen:
+            unique.append(value)
+            seen.add(value)
+    return unique
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    if isinstance(exc, requests.HTTPError):
+        response = exc.response
+        if response is not None and response.status_code == 429:
+            return True
+        body = ""
+        if response is not None:
+            body = response.text or ""
+        return "rate limit" in body.lower() or "quota" in body.lower()
+    return "rate limit" in str(exc).lower() or "quota" in str(exc).lower()
+
+
+def _mark_model_rate_limited(model_id: str) -> None:
+    with _rate_limited_models_lock:
+        _rate_limited_models.add(model_id)
+
+
+def _available_models(models: list[str]) -> list[str]:
+    with _rate_limited_models_lock:
+        skipped = set(_rate_limited_models)
+    available = [model for model in _ordered_unique(models) if model not in skipped]
+    for model in _ordered_unique(models):
+        if model in skipped:
+            logger.info("Skipping rate-limited OpenRouter model {}", model)
+    return available
+
+
+def _reset_rate_limited_models_for_tests() -> None:
+    with _rate_limited_models_lock:
+        _rate_limited_models.clear()
 
 
 def chat_completion(
@@ -82,7 +128,7 @@ def _openrouter_chat(
         headers["X-Title"] = site_name
 
     primary = (llm.chat_model or llm.model) if use_chat_model else llm.model
-    models_to_try = [primary, *llm.fallback_models]
+    models_to_try = _available_models([primary, *llm.fallback_models])
     last_error: Exception = LLMError("No models configured")
 
     # Cap per-model HTTP timeout so slow/hung models don't block the fallback chain.
@@ -126,7 +172,15 @@ def _openrouter_chat(
         except LLMError:
             raise
         except Exception as e:  # noqa: BLE001
-            logger.warning("OpenRouter model {} failed: {}", model_id, e)
+            if _is_rate_limit_error(e):
+                logger.warning(
+                    "OpenRouter model {} hit a rate limit; skipping it for "
+                    "subsequent calls in this process",
+                    model_id,
+                )
+                _mark_model_rate_limited(model_id)
+            else:
+                logger.warning("OpenRouter model {} failed: {}", model_id, e)
             last_error = e
             continue
 
