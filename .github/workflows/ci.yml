@@ -210,12 +210,11 @@ jobs:
             pfas-aria:${{ github.sha }}
 
       - name: Wait for startup
-        run: sleep 20
+        run: sleep 40
 
       - name: Smoke test /health
         run: |
-          docker logs pfas-aria-test
-          curl --fail --retry 5 --retry-delay 5 http://localhost:8000/health || \
+          curl --fail --retry 10 --retry-delay 5 --retry-all-errors http://localhost:8000/health || \
             (docker logs pfas-aria-test && exit 1)
 
       - name: Stop container
