@@ -201,20 +201,21 @@ jobs:
           docker run -d --name pfas-aria-test \
             -p 8000:8000 \
             -e ENVIRONMENT=production \
+            -e AUTO_MIGRATE=false \
             -e DATABASE_URL=postgresql+asyncpg://x:x@localhost/x \
-            -e MONGO_URL=mongodb://localhost:27017 \
+            -e MONGO_URL="mongodb://localhost:27017/?serverSelectionTimeoutMS=500" \
             -e REDIS_URL=redis://localhost:6379 \
             -e CLERK_SECRET_KEY=test \
             -e CLERK_PUBLISHABLE_KEY=test \
             -e OPENROUTER_API_KEY=test \
             pfas-aria:${{ github.sha }}
 
-      - name: Wait for startup
-        run: sleep 40
+      - name: Wait for port 8000
+        run: timeout 60 bash -c 'until nc -z localhost 8000; do sleep 1; done'
 
       - name: Smoke test /health
         run: |
-          curl --fail --retry 10 --retry-delay 5 --retry-all-errors http://localhost:8000/health || \
+          curl --fail http://localhost:8000/health || \
             (docker logs pfas-aria-test && exit 1)
 
       - name: Stop container
