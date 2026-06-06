@@ -184,7 +184,7 @@ jobs:
         working-directory: frontend
         run: npm audit --audit-level=critical
   
-    # ── Stage 7: Docker Build ────────────────────────────────────────────────
+    # ── Stage 7: Docker Build + Smoke Test ──────────────────────────────────
   docker:
     name: Docker Build
     runs-on: ubuntu-latest
@@ -195,3 +195,29 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t pfas-aria:${{ github.sha }} .
+
+      - name: Start container
+        run: |
+          docker run -d --name pfas-aria-test \
+            -p 8000:8000 \
+            -e ENVIRONMENT=production \
+            -e DATABASE_URL=postgresql+asyncpg://x:x@localhost/x \
+            -e MONGO_URL=mongodb://localhost:27017 \
+            -e REDIS_URL=redis://localhost:6379 \
+            -e CLERK_SECRET_KEY=test \
+            -e CLERK_PUBLISHABLE_KEY=test \
+            -e OPENROUTER_API_KEY=test \
+            pfas-aria:${{ github.sha }}
+
+      - name: Wait for startup
+        run: sleep 20
+
+      - name: Smoke test /health
+        run: |
+          docker logs pfas-aria-test
+          curl --fail --retry 5 --retry-delay 5 http://localhost:8000/health || \
+            (docker logs pfas-aria-test && exit 1)
+
+      - name: Stop container
+        if: always()
+        run: docker stop pfas-aria-test && docker rm pfas-aria-test
