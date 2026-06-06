@@ -211,11 +211,11 @@ jobs:
             pfas-aria:${{ github.sha }}
 
       - name: Wait for port 8000
-        run: timeout 60 bash -c 'until nc -z localhost 8000; do sleep 1; done'
+        run: timeout 60 bash -c 'until nc -z localhost 8000; do sleep 1; done' && sleep 5
 
       - name: Smoke test /health
         run: |
-          curl --fail http://localhost:8000/health || \
+          curl --fail --retry 10 --retry-delay 3 --retry-all-errors http://localhost:8000/health || \
             (docker logs pfas-aria-test && exit 1)
 
       - name: Stop container
