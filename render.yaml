@@ -13,10 +13,7 @@ services:
       - key: LOG_LEVEL
         value: INFO
       - key: FRONTEND_URL
-        fromService:
-          name: pfas-aria-frontend
-          type: web
-          property: url
+        sync: false
       - key: DATABASE_URL
         sync: false
       - key: MONGO_URL
