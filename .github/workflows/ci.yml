@@ -27,7 +27,7 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
 
       - name: Ruff lint
         run: ruff check src/ tests/
@@ -60,7 +60,7 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
 
       - name: Bandit SAST
         run: bandit -r src/ -ll --exit-zero
@@ -119,7 +119,7 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Check FastAPI app loads
         run: python -c "from src.api.main import app; print('FastAPI app loaded OK')"

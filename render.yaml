@@ -13,7 +13,10 @@ services:
       - key: LOG_LEVEL
         value: INFO
       - key: FRONTEND_URL
-        sync: false
+        fromService:
+          name: pfas-aria-frontend
+          type: web
+          property: url
       - key: DATABASE_URL
         sync: false
       - key: MONGO_URL
@@ -26,29 +29,9 @@ services:
         sync: false
       - key: CLERK_PUBLISHABLE_KEY
         sync: false
-
-  - type: worker
-    name: pfas-aria-worker
-    runtime: docker
-    plan: starter
-    region: oregon
-    branch: main
-    dockerfilePath: ./Dockerfile
-    dockerCommand: arq src.queue.worker.WorkerSettings
-    envVars:
-      - key: ENVIRONMENT
-        value: production
-      - key: LOG_LEVEL
-        value: INFO
-      - key: DATABASE_URL
+      - key: OPENROUTER_API_KEY
         sync: false
-      - key: MONGO_URL
-        sync: false
-      - key: MONGO_DB
-        value: pfas_aria
-      - key: REDIS_URL
-        sync: false
-      - key: CLERK_SECRET_KEY
+      - key: SEMANTIC_SCHOLAR_API_KEY
         sync: false
 
   - type: web
