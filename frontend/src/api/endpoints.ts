@@ -58,6 +58,15 @@ export const postScreeningGrounded = async (
   return data;
 };
 
+export const getSavedScreeningGrounded = async (
+  runId: string
+): Promise<ScreeningGroundedResponse> => {
+  const { data } = await apiClient.get(
+    `/pipeline/screening-grounded/saved/${encodeURIComponent(runId)}`
+  );
+  return data;
+};
+
 export const startScreeningGrounded = async (
   body: ScreeningGroundedRequest
 ): Promise<GroundingJobStart> => {

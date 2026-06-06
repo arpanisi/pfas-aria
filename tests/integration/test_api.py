@@ -94,6 +94,10 @@ class TestRoutesExist:
         )
         assert response.status_code != 404
 
+    def test_pipeline_saved_screening_grounded_exists(self):
+        response = client.get("/pipeline/screening-grounded/saved/some-run-id")
+        assert response.status_code != 404
+
     def test_pipeline_delete_run_exists(self):
         response = client.delete("/pipeline/runs/some-id")
         assert response.status_code != 404

@@ -6,6 +6,7 @@ import {
   getCitations,
   getConvergence,
   getGroundingProgress,
+  getSavedScreeningGrounded,
   getHypotheses,
   getModelResults,
   getRunStatus,
@@ -101,6 +102,7 @@ export function useGroundingProgress(
 } {
   const [jobId, setJobId] = useState<string | null>(null);
   const [progress, setProgress] = useState<GroundingJobProgress | null>(null);
+  const [savedData, setSavedData] = useState<ScreeningGroundedResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const startedRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -116,6 +118,7 @@ export function useGroundingProgress(
       // Params changed — reset everything
       setJobId(null);
       setProgress(null);
+      setSavedData(null);
       setError(null);
       startedRef.current = false;
       prevParamKey.current = paramKey;
@@ -130,20 +133,48 @@ export function useGroundingProgress(
   useEffect(() => {
     if (!enabled || !params || startedRef.current) return;
     startedRef.current = true;
-    startScreeningGrounded(params)
-      .then(({ job_id }) => setJobId(job_id))
-      .catch((err: unknown) => {
-        const msg =
-          (err as { response?: { data?: { detail?: { message?: string } | string } } })
-            ?.response?.data?.detail as string | { message?: string } | undefined;
-        setError(
-          typeof msg === "object" && msg?.message
-            ? msg.message
-            : typeof msg === "string"
-            ? msg
-            : String(err)
-        );
-      });
+
+    const startJob = () => {
+      startScreeningGrounded(params)
+        .then(({ job_id }) => setJobId(job_id))
+        .catch((err: unknown) => {
+          const msg =
+            (err as { response?: { data?: { detail?: { message?: string } | string } } })
+              ?.response?.data?.detail as string | { message?: string } | undefined;
+          setError(
+            typeof msg === "object" && msg?.message
+              ? msg.message
+              : typeof msg === "string"
+              ? msg
+              : String(err)
+          );
+        });
+    };
+
+    if (params.run_id) {
+      getSavedScreeningGrounded(params.run_id)
+        .then((data) => setSavedData(data))
+        .catch((err: unknown) => {
+          const statusCode = (err as { response?: { status?: number } })?.response?.status;
+          if (statusCode === 404) {
+            startJob();
+            return;
+          }
+          const msg =
+            (err as { response?: { data?: { detail?: { message?: string } | string } } })
+              ?.response?.data?.detail as string | { message?: string } | undefined;
+          setError(
+            typeof msg === "object" && msg?.message
+              ? msg.message
+              : typeof msg === "string"
+              ? msg
+              : String(err)
+          );
+        });
+      return;
+    }
+
+    startJob();
   }, [enabled, params]);
 
   // Poll progress
@@ -164,16 +195,17 @@ export function useGroundingProgress(
     return () => clearInterval(iv);
   }, [jobId, progress?.done]);
 
-  const data = progress?.done && !progress.error && progress.result ? progress.result : null;
-  const isLoading = Boolean(enabled && params && !progress?.done && !error);
+  const data =
+    savedData ?? (progress?.done && !progress.error && progress.result ? progress.result : null);
+  const isLoading = Boolean(enabled && params && !data && !progress?.done && !error);
   const isError = Boolean(error || (progress?.done && progress.error));
   const resolvedError = error ?? (progress?.done ? (progress.error ?? null) : null);
 
   return {
     data,
-    pct: progress?.pct ?? 0,
-    stage: progress?.stage ?? (isLoading ? "Starting…" : ""),
-    etaSeconds: progress?.eta_seconds ?? null,
+    pct: savedData ? 100 : progress?.pct ?? 0,
+    stage: savedData ? "Done" : progress?.stage ?? (isLoading ? "Starting…" : ""),
+    etaSeconds: savedData ? null : progress?.eta_seconds ?? null,
     isLoading,
     isError,
     error: resolvedError,

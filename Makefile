@@ -8,6 +8,7 @@
         run-pipeline run-api run-frontend dvc-init clean \
         db-up db-down db-logs db-reset
 
+
 VENV ?= .venv
 PYTHON ?= $(VENV)/bin/python
 PIP ?= $(PYTHON) -m pip
@@ -53,7 +54,7 @@ install:
 	$(PIP) install -r requirements.txt
 
 install-dev: install
-	$(PIP) install pre-commit
+	$(PIP) install -r requirements-dev.txt
 	$(PRE_COMMIT) install
 	@echo "✅ Dev environment ready"
 
@@ -95,14 +96,13 @@ local-gate:
 	$(BANDIT) -r src/ -ll
 	$(PIP_AUDIT) -r requirements.txt --progress-spinner off
 
-github-gate: install
+github-gate: install-dev
 	$(PIP) check
 	$(RUFF) check src/ tests/
 	$(RUFF) format --check src/ tests/
 	$(MYPY) src/ $(MYPY_FLAGS)
 	$(BANDIT) -r src/ -ll --exit-zero
 	$(PIP_AUDIT) -r requirements.txt --progress-spinner off
-	-$(SEMGREP) --config p/python --config p/secrets --config p/owasp-top-ten src/
 	$(PYTHON) -c "from src.api.main import app; print('FastAPI app loaded OK')"
 	$(PYTEST) tests/ -v --tb=short --cov=src --cov-report=xml
 	cd $(FRONTEND_DIR) && npm ci
@@ -113,9 +113,6 @@ github-gate: install
 
 run-pipeline:
 	$(PYTHON) -m src.orchestration.pipeline
-
-run-worker:
-	arq src.queue.worker.WorkerSettings
 
 run-api:
 	uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000

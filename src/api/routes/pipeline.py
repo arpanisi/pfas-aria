@@ -547,6 +547,24 @@ async def screening_grounded_start(
     return GroundingJobStart(job_id=job_id)
 
 
+@router.get("/screening-grounded/saved/{run_id}", response_model=ScreeningGroundedOut)
+async def saved_screening_grounded(
+    run_id: str,
+    user: CurrentUser,
+    db: DBSession,
+) -> ScreeningGroundedOut:
+    """Return a previously saved literature grounding report for a screening run."""
+    saved = await load_grounded_bundles(
+        db, run_id.strip(), user_sub=current_user_sub(user)
+    )
+    if not saved:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"Saved literature report for run {run_id!r} not found",
+        )
+    return saved
+
+
 @router.get(
     "/screening-grounded/progress/{job_id}", response_model=GroundingJobProgress
 )
