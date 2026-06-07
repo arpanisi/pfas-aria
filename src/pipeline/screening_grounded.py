@@ -23,6 +23,7 @@ from src.etl.experimental.detector import add_derived_entity_column
 from src.grounding.arxiv_client import ArxivClient
 from src.grounding.crossref_client import CrossrefClient
 from src.grounding.europe_pmc_client import EuropePMCClient
+from src.grounding.jina_client import JinaSearchClient
 from src.grounding.openalex_client import OpenAlexClient
 from src.grounding.semantic_scholar import SemanticScholarClient
 from src.ingestion.dataset_screening_layout import (
@@ -1603,6 +1604,28 @@ def _s2_citation(
         return None
 
 
+def _jina_citation(
+    search_query: str, sq_vec: np.ndarray, hid: str, variable: str
+) -> dict | None:
+    try:
+        return _best_external_citation(
+            JinaSearchClient().search(search_query),
+            sq_vec,
+            hid,
+            variable,
+            source="jina",
+            id_prefix="jina",
+            get_id=lambda p: p.url,
+            get_title=lambda p: p.title,
+            get_abstract=lambda p: p.abstract,
+            get_url=lambda p: p.url,
+            get_year=lambda p: p.published[:4] if p.published else None,
+        )
+    except Exception as e:
+        logger.warning("Jina citation failed: {}", e)
+        return None
+
+
 def _openalex_citation(
     search_query: str, sq_vec: np.ndarray, hid: str, variable: str
 ) -> dict | None:
@@ -1737,6 +1760,7 @@ def _external_citations(
     """Collect broad external literature references before slower fallbacks."""
     citations: list[dict] = []
     for provider in (
+        _jina_citation,
         _openalex_citation,
         _europe_pmc_citation,
         _crossref_citation,

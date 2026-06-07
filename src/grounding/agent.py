@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.grounding.arxiv_client import ArxivClient
+from src.grounding.jina_client import JinaSearchClient
 from src.grounding.scorer import Citation, GroundingResult, GroundingScorer
 from src.grounding.semantic_scholar import SemanticScholarClient
 from src.modeling.engine import ModelResult
@@ -54,7 +54,7 @@ class GroundingAgent:
 
     def __init__(self, retriever: Retriever) -> None:
         self.retriever = retriever
-        self.arxiv = ArxivClient()
+        self.arxiv = JinaSearchClient()
         self.s2 = SemanticScholarClient()
         self.scorer = GroundingScorer(retriever)
 
@@ -143,8 +143,8 @@ class GroundingAgent:
         # Build finding description for search
         finding = self._describe_finding(model_result, significant_variables)
 
-        # Search arXiv
-        logger.debug(f"  Searching arXiv for {hypothesis_id}...")
+        # Search literature via Jina
+        logger.debug(f"  Searching literature for {hypothesis_id}...")
         arxiv_papers = self.arxiv.search_for_finding(
             finding=finding,
             significant_variables=significant_variables[:5],
