@@ -155,7 +155,9 @@ class TestReranker:
         reranker = Reranker()
         result = reranker.rerank("electrochemical PFAS degradation", chunks)
         assert result[0].text == "electrochemical oxidation"
+        assert result[0].similarity_score == pytest.approx(0.9)
         assert result[1].text == "UV photolysis"
+        assert result[1].similarity_score == pytest.approx(0.3)
 
     @patch("src.rag.reranker.httpx.post")
     @patch.dict("os.environ", {"JINA_API_KEY": "test-key"})

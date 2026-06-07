@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.grounding.jina_client import JinaSearchClient
+from src.grounding.arxiv_client import ArxivClient
 from src.grounding.scorer import Citation, GroundingResult, GroundingScorer
 from src.grounding.semantic_scholar import SemanticScholarClient
 from src.modeling.engine import ModelResult
@@ -54,7 +54,7 @@ class GroundingAgent:
 
     def __init__(self, retriever: Retriever) -> None:
         self.retriever = retriever
-        self.arxiv = JinaSearchClient()
+        self.arxiv = ArxivClient()
         self.s2 = SemanticScholarClient()
         self.scorer = GroundingScorer(retriever)
 
