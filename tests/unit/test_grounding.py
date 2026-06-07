@@ -229,7 +229,7 @@ class TestSemanticScholarClient:
             "fieldsOfStudy": [],
         }
         paper = client._to_paper(data)
-        assert "arxiv.org" in paper.url
+        assert paper.url.startswith("https://arxiv.org/")
 
 
 # ── GroundingScorer Tests ─────────────────────────────────────────────────────
