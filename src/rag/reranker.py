@@ -62,4 +62,9 @@ class Reranker:
             logger.warning("Reranker failed, keeping original order: {}", e)
             return chunks
 
-        return [chunks[r["index"]] for r in results]
+        reranked = []
+        for r in results:
+            chunk = chunks[r["index"]]
+            chunk.similarity_score = round(float(r["relevance_score"]), 4)
+            reranked.append(chunk)
+        return reranked

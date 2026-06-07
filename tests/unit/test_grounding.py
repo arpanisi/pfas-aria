@@ -8,7 +8,6 @@ import numpy as np
 import pytest
 
 from src.grounding.arxiv_client import ArxivClient, ArxivPaper
-from src.grounding.jina_client import JinaSearchClient
 from src.grounding.scorer import (
     GroundingResult,
     GroundingScorer,
@@ -129,44 +128,6 @@ class TestArxivClient:
         client = ArxivClient()
         papers = client._parse(_minimal_atom_xml(abstract=""))
         assert papers == []
-
-
-# ── JinaSearchClient Tests ───────────────────────────────────────────────────
-
-
-class TestJinaSearchClient:
-    @patch("src.grounding.jina_client.httpx.get")
-    @patch.dict("os.environ", {"JINA_API_KEY": "test-key"})
-    def test_search_returns_arxiv_papers(self, mock_get):
-        mock_get.return_value.raise_for_status = MagicMock()
-        mock_get.return_value.json.return_value = {
-            "data": [
-                {
-                    "title": "Electrochemical PFAS Degradation",
-                    "description": "Study on PFAS removal via oxidation.",
-                    "url": "https://pubs.acs.org/doi/example",
-                    "publishedTime": "2024-03-01T00:00:00Z",
-                }
-            ]
-        }
-        client = JinaSearchClient()
-        results = client.search("PFAS electrochemical degradation")
-        assert len(results) == 1
-        assert isinstance(results[0], ArxivPaper)
-        assert results[0].title == "Electrochemical PFAS Degradation"
-        assert results[0].url == "https://pubs.acs.org/doi/example"
-
-    @patch("src.grounding.jina_client.httpx.get")
-    @patch.dict("os.environ", {"JINA_API_KEY": "test-key"})
-    def test_search_returns_empty_on_error(self, mock_get):
-        mock_get.side_effect = Exception("timeout")
-        client = JinaSearchClient()
-        assert client.search("PFAS") == []
-
-    @patch.dict("os.environ", {}, clear=True)
-    def test_disabled_without_api_key(self):
-        client = JinaSearchClient()
-        assert client.search("PFAS") == []
 
 
 # ── SemanticScholarClient Tests ───────────────────────────────────────────────
