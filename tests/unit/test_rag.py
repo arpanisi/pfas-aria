@@ -127,8 +127,13 @@ class TestRetriever:
 
 def _make_chunk(text: str, score: float = 0.8) -> RetrievedChunk:
     return RetrievedChunk(
-        doc_id="doc1", source_file="paper.pdf", title="PFAS Review",
-        text=text, chunk_index=0, similarity_score=score, metadata={},
+        doc_id="doc1",
+        source_file="paper.pdf",
+        title="PFAS Review",
+        text=text,
+        chunk_index=0,
+        similarity_score=score,
+        metadata={},
     )
 
 
@@ -136,10 +141,16 @@ class TestReranker:
     @patch("src.rag.reranker.httpx.post")
     @patch.dict("os.environ", {"JINA_API_KEY": "test-key"})
     def test_rerank_reorders_chunks(self, mock_post):
-        chunks = [_make_chunk("UV photolysis"), _make_chunk("electrochemical oxidation")]
+        chunks = [
+            _make_chunk("UV photolysis"),
+            _make_chunk("electrochemical oxidation"),
+        ]
         mock_post.return_value.raise_for_status = MagicMock()
         mock_post.return_value.json.return_value = {
-            "results": [{"index": 1, "relevance_score": 0.9}, {"index": 0, "relevance_score": 0.3}]
+            "results": [
+                {"index": 1, "relevance_score": 0.9},
+                {"index": 0, "relevance_score": 0.3},
+            ]
         }
         reranker = Reranker()
         result = reranker.rerank("electrochemical PFAS degradation", chunks)

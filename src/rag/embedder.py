@@ -7,6 +7,7 @@ Singleton pattern — client initialises once and is reused across all agents.
 from __future__ import annotations
 
 import os
+from typing import cast
 
 import httpx
 import numpy as np
@@ -41,13 +42,20 @@ class Embedder:
         resp = httpx.post(
             _JINA_URL,
             headers=self._headers,
-            json={"model": self._model, "input": texts, "task": task, "normalized": True},
+            json={
+                "model": self._model,
+                "input": texts,
+                "task": task,
+                "normalized": True,
+            },
             timeout=60,
         )
         resp.raise_for_status()
         data = resp.json()
-        vecs = [item["embedding"] for item in sorted(data["data"], key=lambda x: x["index"])]
-        return np.array(vecs, dtype=np.float32)
+        vecs: list[list[float]] = [
+            item["embedding"] for item in sorted(data["data"], key=lambda x: x["index"])
+        ]
+        return cast(np.ndarray, np.array(vecs, dtype=np.float32))
 
     def embed(self, texts: list[str]) -> np.ndarray:
         """Embed corpus passages. Returns shape (n, embedding_dim)."""

@@ -60,9 +60,11 @@ class JinaSearchClient:
 
     def _parse(self, data: dict) -> list[ArxivPaper]:
         papers: list[ArxivPaper] = []
-        for item in (data.get("data") or [])[:self.max_results]:
+        for item in (data.get("data") or [])[: self.max_results]:
             title = (item.get("title") or "").strip()
-            abstract = (item.get("description") or item.get("content") or "").strip()[:500]
+            abstract = (item.get("description") or item.get("content") or "").strip()[
+                :500
+            ]
             url = item.get("url") or ""
             published = (item.get("publishedTime") or "")[:10]
             if not title:
