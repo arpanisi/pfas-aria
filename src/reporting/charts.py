@@ -7,7 +7,7 @@ Charts produced:
   1. Convergence history — match score and R² per round
   2. Parameter effects — coefficient plot with CI bars
   3. Time effects — temporal progression
-  4. Entropy/KL trajectory (if PFCA data)
+  4. Entropy/KL trajectory (if composition-series data)
 """
 
 from __future__ import annotations

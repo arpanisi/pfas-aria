@@ -40,7 +40,7 @@ class ExperimentalTransformer:
     # Columns with these keywords get log-transform candidates
     LOG_CANDIDATES = ["concentration", "dose", "rate", "flux", "intensity"]
 
-    # Known unit conversions for common PFAS variables
+    # Known unit conversions for common experimental variables.
     UNIT_PATTERNS = {
         "ug_l": 1e-3,  # µg/L → mg/L
         "ng_l": 1e-6,  # ng/L → mg/L
@@ -152,7 +152,7 @@ class ExperimentalTransformer:
     ) -> pd.DataFrame:
         """
         Normalize units across columns.
-        column_units: {column_name: unit_suffix} e.g. {"pfas_conc": "ug_l"}
+        column_units: {column_name: unit_suffix} e.g. {"analyte_conc": "ug_l"}
         """
         df = df.copy()
         for col, unit in column_units.items():

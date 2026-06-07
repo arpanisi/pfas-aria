@@ -4,15 +4,12 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import numpy as np
-import pandas as pd
 import pytest
 
 from src.agents.data_intelligence import (
     DataIntelligenceReport,
     FeatureProfile,
     PanelStructure,
-    Regime,
 )
 from src.agents.hypothesis import HypothesisAgent, HypothesisSet
 
@@ -36,38 +33,7 @@ def _make_feature_profile(name: str, corr: float = 0.5) -> FeatureProfile:
 
 @pytest.fixture
 def mock_report() -> DataIntelligenceReport:
-    df = pd.DataFrame(
-        {
-            "experiment_id": range(1, 61),
-            "time_hours": np.linspace(0, 10, 60),
-            "degradation_rate": np.random.normal(0.5, 0.1, 60),
-            "uv_intensity": np.random.normal(20, 5, 60),
-            "ph": np.random.normal(7.0, 0.5, 60),
-            "temperature_c": np.random.normal(25, 3, 60),
-            "catalyst": ["TiO2"] * 30 + ["ZnO"] * 30,
-            "regime": ["regime_0"] * 30 + ["regime_1"] * 30,
-        }
-    )
-
     return DataIntelligenceReport(
-        regimes=[
-            Regime(
-                label="regime_0",
-                indices=list(range(30)),
-                size=30,
-                description="Low UV intensity regime",
-                summary_stats={},
-            ),
-            Regime(
-                label="regime_1",
-                indices=list(range(30, 60)),
-                size=30,
-                description="High UV intensity regime",
-                summary_stats={},
-            ),
-        ],
-        n_regimes=2,
-        regime_method="kmeans",
         panel_structure=PanelStructure(
             is_panel=True,
             entity_column="experiment_id",
@@ -97,7 +63,6 @@ def mock_report() -> DataIntelligenceReport:
             ),
         ],
         top_features=["uv_intensity", "temperature_c", "ph"],
-        labeled_df=df,
         schema_summary="Test dataset: 60 rows, outcome=degradation_rate",
         llm_interpretation="Two regimes detected based on UV intensity.",
         warnings=[],

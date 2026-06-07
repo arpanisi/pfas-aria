@@ -9,23 +9,98 @@ export interface ColumnInfo {
   sample_values: (string | number)[];
 }
 
+export interface LegacyRegimeSummary {
+  regime_id: number;
+  n_rows: number;
+  row_indices_sample: string[];
+  condition_values_sample: string[];
+  /** Input columns with >1 distinct value within this regime's rows. */
+  non_constant_input_cols: string[];
+  /** Output columns with >1 distinct value within this regime's rows. */
+  non_constant_output_cols: string[];
+}
+
+export interface RegimeRowCount {
+  regime_id: number;
+  n_rows: number;
+}
+
+export interface LegacySegmentationPreview {
+  filename: string;
+  n_rows: number;
+  n_cols: number;
+  n_regimes: number;
+  input_cols: string[];
+  output_cols: string[];
+  regimes: LegacyRegimeSummary[];
+  /** Row counts for regime ids 1–5 (unused ids are zero when only segment 1 exists). */
+  regime_row_counts: RegimeRowCount[];
+  warnings: string[];
+}
+
 export interface DatasetPreview {
   filename: string;
   n_rows: number;
   n_cols: number;
   columns: ColumnInfo[];
+  /** 0-based Excel row used as column headers; omitted for CSV/TSV */
+  excel_header_row?: number | null;
+  /** From upload — same lists as segmentation preview when available */
+  input_cols?: string[];
+  output_cols?: string[];
+  /** First 100 rows after server-side normalization (column name → cell text). */
+  preview_rows?: Record<string, string>[];
+  /** Summary of mandatory cleaning / encoding applied on ingest. */
+  cleaning_notes?: string[];
+  /** Unified-layout metadata column names when detected. */
+  metadata_cols?: string[];
+  /** Column order after normalization (for verification before modeling). */
+  all_columns?: string[];
+  /** PostgreSQL id for persisted inverse label maps. */
+  label_encoding_record_id?: string | null;
 }
 
-export interface RunConfig {
+export interface AutomatedScreeningIterationRequest {
+  filename: string;
+  run_name: string;
+  regime_id?: number;
+  convergence_threshold?: number;
+}
+
+export interface AutomatedScreeningIterationResponse {
+  hypotheses_tested: number;
+  run_id?: string | null;
+}
+
+export interface ScreeningGroundedRequest {
+  filename: string;
+  regime_id: number;
+  run_name?: string;
+  /** Screening run row to attach grounded hypotheses to (PostgreSQL). */
+  run_id?: string | null;
+}
+
+export interface ScreeningBundle {
+  hypothesis: Hypothesis;
+  model_result: ModelResult;
+  citations: Citation[];
+  output_variable?: string | null;
+}
+
+export interface ScreeningGroundedResponse {
   run_name: string;
   filename: string;
-  outcome_variable: string;
-  feature_columns: string[];
-  exclude_columns: string[];
-  max_rounds: number;
-  convergence_threshold: number;
-  hypotheses_per_round: number;
-  strict_validation: boolean;
+  display_title: string;
+  dataset_n_rows: number;
+  dataset_n_cols: number;
+  n_corpus_papers: number;
+  regime_id: number;
+  regime_n_rows: number;
+  bundles: ScreeningBundle[];
+  warnings: string[];
+  persisted_to_run_id?: string | null;
+  system_summary?: string | null;
+  next_steps?: string | null;
 }
 
 export interface RunStatus {
@@ -36,6 +111,12 @@ export interface RunStatus {
   final_match_score: number;
   converged: boolean;
   n_rounds_completed: number;
+  run_kind: string;
+  regime_id: number | null;
+  hypotheses_tested: number | null;
+  dataset_filename: string | null;
+  created_at?: string | null;
+  screening_phase?: string | null;
 }
 
 export interface Hypothesis {
@@ -50,6 +131,110 @@ export interface Hypothesis {
   is_refinement: boolean;
 }
 
+export interface ModelDiagnostics {
+  model_family: string;
+  diagnostic_score: number;
+  passed_tests: string[];
+  failed_tests: string[];
+  warnings: string[];
+  // OLS overall model
+  f_statistic: number | null;
+  f_pvalue: number | null;
+  df_model: number | null;
+  df_resid: number | null;
+  // OLS assumption tests
+  breusch_pagan_p: number | null;
+  durbin_watson: number | null;
+  jarque_bera_p: number | null;
+  reset_p: number | null;
+  max_vif: number | null;
+  condition_number: number | null;
+  max_cooks_d: number | null;
+  aic: number | null;
+  bic: number | null;
+  // Panel
+  within_r2: number | null;
+  between_r2: number | null;
+  icc: number | null;
+  adf_stationary_fraction: number | null;
+  n_entities: number | null;
+  // XGBoost
+  cv_r2: number | null;
+  generalization_gap: number | null;
+  // Two-stage
+  stage1_within_r2: number | null;
+  stage2_r2: number | null;
+  // LASSO
+  n_nonzero_coefs: number | null;
+  cv_r2_lasso: number | null;
+}
+
+export interface ExtendedOLSDiagnostics {
+  n_obs?: number;
+  n_predictors?: number;
+  obs_per_predictor?: number | null;
+  rmse?: number | null;
+  mae?: number | null;
+  mape?: number | null;
+  y_std?: number | null;
+  cv_r2?: number | null;
+  cv_r2_std?: number | null;
+  n_influential?: number;
+  n_high_leverage?: number;
+  max_studentized?: number | null;
+  breusch_godfrey_p?: number | null;
+  white_p?: number | null;
+  aic?: number | null;
+  bic?: number | null;
+  standardized_betas?: Record<string, number | null>;
+  error?: string;
+}
+
+export interface ExtendedPanelDiagnostics {
+  n_obs?: number;
+  n_entities?: number;
+  min_obs_per_entity?: number;
+  max_obs_per_entity?: number;
+  mean_obs_per_entity?: number | null;
+  balanced?: boolean;
+  rmse?: number | null;
+  mae?: number | null;
+  y_std?: number | null;
+  within_r2?: number | null;
+  between_r2?: number | null;
+  overall_r2?: number | null;
+  f_statistic?: number | null;
+  f_pvalue?: number | null;
+  aic?: number | null;
+  bic?: number | null;
+  hausman_stat?: number | null;
+  hausman_p?: number | null;
+  fe_necessary?: boolean;
+  error?: string;
+  fit_error?: string;
+  hausman_error?: string;
+}
+
+export interface AdditionalFamilyDiagnostics {
+  xgboost?: Record<string, unknown>;
+  lasso?: Record<string, unknown>;
+  ridge?: Record<string, unknown>;
+  two_stage?: Record<string, unknown>;
+  error?: string;
+}
+
+export interface BundleDiagnostics {
+  ols: ModelDiagnostics | null;
+  panel: ModelDiagnostics | null;
+  screening_model_class?: "time_only" | "time_plus_parameter" | "parameter_only" | string;
+  extended?: {
+    ols?: ExtendedOLSDiagnostics | null;
+    panel?: ExtendedPanelDiagnostics | null;
+  };
+  additional_families?: AdditionalFamilyDiagnostics;
+  overall_robustness_score?: number;
+}
+
 export interface ModelResult {
   id: string;
   hypothesis_id: string;
@@ -62,6 +247,7 @@ export interface ModelResult {
   significant_variables: string[];
   match_score: number;
   validation_passed: boolean;
+  diagnostic_score?: number;
 }
 
 export interface Citation {
@@ -71,7 +257,49 @@ export interface Citation {
   url: string | null;
   year: string | null;
   similarity_score: number;
+  abstract_snippet: string | null;
   variable: string | null;
+  /** When set, citation was retrieved for a specific screening hypothesis (e.g. H1). */
+  hypothesis_id?: string | null;
+}
+
+export interface ScreeningStatsRequest {
+  filename: string;
+  regime_id: number;
+  run_name?: string;
+  run_id?: string | null;
+}
+
+export interface ScreeningStatsBundle {
+  hypothesis: Hypothesis;
+  model_result: ModelResult;
+  diagnostics?: BundleDiagnostics;
+  output_variable?: string | null;
+}
+
+export interface ScreeningStatsResponse {
+  run_name: string;
+  filename: string;
+  display_title: string;
+  dataset_n_rows: number;
+  dataset_n_cols: number;
+  regime_id: number;
+  regime_n_rows: number;
+  bundles: ScreeningStatsBundle[];
+  warnings: string[];
+}
+
+export interface GroundingJobStart {
+  job_id: string;
+}
+
+export interface GroundingJobProgress {
+  pct: number;
+  stage: string;
+  done: boolean;
+  eta_seconds: number | null;
+  result: ScreeningGroundedResponse | null;
+  error: string | null;
 }
 
 export interface ConvergencePoint {
@@ -121,19 +349,3 @@ export interface WSStatusMessage {
   match_score: number;
   details: Record<string, unknown>;
 }
-
-// ── UI state types ────────────────────────────────────────────────────────────
-
-export type UploadStep = "upload" | "configure" | "running" | "results";
-
-export type RunStep =
-  | "initializing"
-  | "ingesting"
-  | "building_rag"
-  | "analyzing_data"
-  | "generating_hypotheses"
-  | "modeling"
-  | "grounding"
-  | "converged"
-  | "completed"
-  | "failed";

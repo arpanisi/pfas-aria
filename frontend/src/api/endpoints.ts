@@ -1,14 +1,22 @@
 import { apiClient } from "./client";
 import type {
+  AutomatedScreeningIterationRequest,
+  AutomatedScreeningIterationResponse,
   Citation,
   ConvergencePoint,
   CorpusStats,
   DatasetPreview,
+  GroundingJobProgress,
+  GroundingJobStart,
   Hypothesis,
+  LegacySegmentationPreview,
   ModelResult,
-  RunConfig,
   RunStatus,
   RunSummary,
+  ScreeningGroundedRequest,
+  ScreeningGroundedResponse,
+  ScreeningStatsRequest,
+  ScreeningStatsResponse,
 } from "@/types";
 
 // ── Pipeline ──────────────────────────────────────────────────────────────────
@@ -16,16 +24,67 @@ import type {
 export const uploadDataset = async (file: File): Promise<DatasetPreview> => {
   const formData = new FormData();
   formData.append("file", file);
-  const { data } = await apiClient.post("/pipeline/upload", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
+  const { data } = await apiClient.post("/pipeline/upload", formData);
+  return data;
+};
+
+export const getLegacySegmentationPreview = async (
+  filename: string
+): Promise<LegacySegmentationPreview> => {
+  const { data } = await apiClient.get("/pipeline/legacy-segmentation-preview", {
+    params: { filename },
   });
   return data;
 };
 
-export const startRun = async (
-  config: RunConfig
-): Promise<{ run_id: string; status: string }> => {
-  const { data } = await apiClient.post("/pipeline/run", config);
+export const runAutomatedScreeningIteration = async (
+  body: AutomatedScreeningIterationRequest
+): Promise<AutomatedScreeningIterationResponse> => {
+  const { data } = await apiClient.post(
+    "/pipeline/automated-screening-iteration",
+    body,
+    { timeout: 120_000 }
+  );
+  return data;
+};
+
+export const postScreeningGrounded = async (
+  body: ScreeningGroundedRequest
+): Promise<ScreeningGroundedResponse> => {
+  const { data } = await apiClient.post("/pipeline/screening-grounded", body, {
+    // Sync screening + many RAG calls + LLM rationales can exceed 2 minutes on real datasets.
+    timeout: 600_000,
+  });
+  return data;
+};
+
+export const getSavedScreeningGrounded = async (
+  runId: string
+): Promise<ScreeningGroundedResponse> => {
+  const { data } = await apiClient.get(
+    `/pipeline/screening-grounded/saved/${encodeURIComponent(runId)}`
+  );
+  return data;
+};
+
+export const startScreeningGrounded = async (
+  body: ScreeningGroundedRequest
+): Promise<GroundingJobStart> => {
+  const { data } = await apiClient.post("/pipeline/screening-grounded/start", body);
+  return data;
+};
+
+export const getGroundingProgress = async (jobId: string): Promise<GroundingJobProgress> => {
+  const { data } = await apiClient.get(`/pipeline/screening-grounded/progress/${encodeURIComponent(jobId)}`);
+  return data;
+};
+
+export const postScreeningStats = async (
+  body: ScreeningStatsRequest
+): Promise<ScreeningStatsResponse> => {
+  const { data } = await apiClient.post("/pipeline/screening-stats", body, {
+    timeout: 120_000,
+  });
   return data;
 };
 
@@ -36,6 +95,15 @@ export const getRunStatus = async (runId: string): Promise<RunStatus> => {
 
 export const listRuns = async (): Promise<RunStatus[]> => {
   const { data } = await apiClient.get("/pipeline/runs");
+  return data;
+};
+
+export const deleteRun = async (runId: string): Promise<void> => {
+  await apiClient.delete(`/pipeline/runs/${encodeURIComponent(runId)}`);
+};
+
+export const deleteAllScreeningRuns = async (): Promise<{ deleted: number }> => {
+  const { data } = await apiClient.delete("/pipeline/runs/screening/all");
   return data;
 };
 
@@ -84,12 +152,38 @@ export const getCorpusStats = async (): Promise<CorpusStats> => {
 };
 
 export const uploadPaper = async (
-  file: File
+  file: File,
+  onProgress?: (pct: number) => void,
 ): Promise<{ filename: string; status: string }> => {
   const formData = new FormData();
   formData.append("file", file);
   const { data } = await apiClient.post("/corpus/upload", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 0,
+    onUploadProgress: (e) => {
+      if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100));
+    },
   });
   return data;
 };
+
+export async function deletePaper(paperId: string): Promise<void> {
+  await apiClient.delete(`/corpus/${encodeURIComponent(paperId)}`);
+}
+
+export async function clearCorpus(): Promise<{
+  status: string;
+  deleted_papers: number;
+  deleted_chunks: number;
+}> {
+  const { data } = await apiClient.delete("/corpus");
+  return data;
+}
+
+export async function inferDomainContext(
+  colNames: string[]
+): Promise<{ domain_context: string; n_papers: number; corpus_fingerprint: string }> {
+  const { data } = await apiClient.post("/corpus/domain-context", {
+    col_names: colNames,
+  });
+  return data;
+}

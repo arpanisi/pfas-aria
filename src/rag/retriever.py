@@ -1,8 +1,7 @@
 """
 Retriever.
 High-level interface that agents use to query the corpus.
-Abstracts away ChromaDB details — agents just ask questions.
-Caches query results in Redis to avoid redundant ChromaDB hits
+Caches query results in Redis to avoid redundant vector searches
 across pipeline rounds (same query asked multiple times).
 """
 
@@ -12,6 +11,7 @@ import hashlib
 import json
 from typing import Any
 
+from src.rag.reranker import Reranker
 from src.rag.vector_store import RetrievedChunk, VectorStore
 from src.utils.logging import get_logger
 
@@ -27,11 +27,12 @@ class Retriever:
     The single interface all agents use to access the paper corpus.
     Provides domain-aware retrieval methods tailored to each agent's needs.
     Results are cached in Redis — same query in round 1 and round 3
-    hits the cache instead of ChromaDB.
+    hits the cache instead of hitting the vector store again.
     """
 
     def __init__(self, vector_store: VectorStore) -> None:
         self._store = vector_store
+        self._reranker = Reranker()
         self._redis_available = self._check_redis()
 
     def _check_redis(self) -> bool:
@@ -52,8 +53,12 @@ class Retriever:
         return redis.Redis(host="localhost", port=6379, db=1)
 
     def _cache_key(self, query: str, top_k: int, min_similarity: float) -> str:
-        raw = f"rag:{query}:{top_k}:{min_similarity}:{self._store.count()}"
-        return f"rag:{hashlib.md5(raw.encode()).hexdigest()[:16]}"
+        raw = (
+            f"rag:{self._store.scope_key}:{query}:"
+            f"{top_k}:{min_similarity}:{self._store.count()}"
+        )
+        digest = hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()[:16]
+        return f"rag:{digest}"
 
     def _get_cache(self, key: str) -> list[RetrievedChunk] | None:
         if not self._redis_available:
@@ -107,9 +112,48 @@ class Retriever:
 
         logger.debug(f"RAG query: '{query[:80]}' top_k={top_k}")
         results = self._store.search(query, top_k=top_k, min_similarity=min_similarity)
+        results = self._reranker.rerank(query, results)
         self._set_cache(cache_key, results)
         logger.debug(f"Retrieved {len(results)} chunks")
         return results
+
+    def retrieve_batch(
+        self,
+        queries: list[str],
+        top_k: int = 5,
+        min_similarity: float = 0.0,
+    ) -> list[list[RetrievedChunk]]:
+        """Embed all queries in a single model pass, serving cache hits individually.
+
+        Cache hits are served per-query; only misses go through batch embedding.
+        """
+        if not queries:
+            return []
+
+        results: list[list[RetrievedChunk] | None] = [None] * len(queries)
+        miss_indices: list[int] = []
+        miss_queries: list[str] = []
+
+        for i, q in enumerate(queries):
+            cache_key = self._cache_key(q, top_k, min_similarity)
+            cached = self._get_cache(cache_key)
+            if cached is not None:
+                results[i] = cached
+            else:
+                miss_indices.append(i)
+                miss_queries.append(q)
+
+        if miss_queries:
+            batch = self._store.search_batch(
+                miss_queries, top_k=top_k, min_similarity=min_similarity
+            )
+            for local_i, (idx, chunks) in enumerate(zip(miss_indices, batch)):
+                q = queries[idx]
+                cache_key = self._cache_key(q, top_k, min_similarity)
+                self._set_cache(cache_key, chunks)
+                results[idx] = chunks
+
+        return [r if r is not None else [] for r in results]
 
     def retrieve_for_hypothesis(
         self,
@@ -188,12 +232,13 @@ class Retriever:
 
 
 def get_retriever(vector_store: VectorStore | None = None) -> Retriever:
-    """Return the singleton Retriever. Pass vector_store on first call."""
+    """Return the Retriever. Pass ``vector_store`` whenever the index may have changed."""
     global _instance
-    if _instance is None:
-        if vector_store is None:
-            raise RuntimeError(
-                "Retriever not initialized. Pass a VectorStore on first call."
-            )
+    if vector_store is not None:
         _instance = Retriever(vector_store)
+        return _instance
+    if _instance is None:
+        raise RuntimeError(
+            "Retriever not initialized. Pass a VectorStore on first call."
+        )
     return _instance

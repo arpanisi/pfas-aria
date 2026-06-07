@@ -1,16 +1,25 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useLayoutEffect } from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { ClerkProvider, SignIn, SignedIn, SignedOut } from "@clerk/clerk-react";
+import {
+  ClerkProvider,
+  SignIn,
+  SignedIn,
+  SignedOut,
+  useAuth,
+} from "@clerk/clerk-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "react-hot-toast";
 
 import { AppLayout } from "@/components/layout/AppLayout";
+import { CorpusPage } from "@/pages/CorpusPage";
 import { Dashboard } from "@/pages/Dashboard";
 import { NewRun } from "@/pages/NewRun";
 import { RunHistory } from "@/pages/RunHistory";
-import { CorpusPage } from "@/pages/CorpusPage";
+import { ScreeningResults } from "@/pages/ScreeningResults";
+import { ScreeningStats } from "@/pages/ScreeningStats";
 import { useTheme } from "@/store/theme";
+import { setAuthToken } from "@/api/client";
 
 import "./index.css";
 
@@ -28,6 +37,14 @@ function ThemeInit() {
   return null;
 }
 
+function AuthSetup() {
+  const { getToken } = useAuth();
+  useLayoutEffect(() => {
+    setAuthToken(() => getToken());
+  }, [getToken]);
+  return null;
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ClerkProvider publishableKey={CLERK_KEY}>
@@ -35,18 +52,31 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <ThemeInit />
         <BrowserRouter>
           <SignedOut>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "var(--bg)" }}>
-              <SignIn routing="hash" />
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                height: "100vh",
+                background: "var(--bg)",
+              }}
+            >
+              <SignIn />
             </div>
           </SignedOut>
           <SignedIn>
+            <AuthSetup />
             <Routes>
               <Route element={<AppLayout />}>
                 <Route index element={<Navigate to="/runs" replace />} />
+                <Route path="/sign-in" element={<Navigate to="/runs" replace />} />
                 <Route path="/runs" element={<RunHistory />} />
+                <Route path="/runs/screening" element={<ScreeningResults />} />
+                <Route path="/runs/stats" element={<ScreeningStats />} />
                 <Route path="/runs/:runId" element={<Dashboard />} />
                 <Route path="/upload" element={<NewRun />} />
                 <Route path="/corpus" element={<CorpusPage />} />
+                <Route path="*" element={<Navigate to="/runs" replace />} />
               </Route>
             </Routes>
           </SignedIn>
@@ -55,8 +85,11 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           position="bottom-right"
           toastOptions={{
             style: {
-              background: "var(--surface)", color: "var(--text)",
-              border: "1px solid var(--border)", fontFamily: "var(--font-sans)", fontSize: "13px",
+              background: "var(--surface)",
+              color: "var(--text)",
+              border: "1px solid var(--border)",
+              fontFamily: "var(--font-sans)",
+              fontSize: "13px",
             },
           }}
         />

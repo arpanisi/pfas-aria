@@ -47,6 +47,8 @@ htmlcov/
 *.swp
 *.swo
 .DS_Store
+.cursor
+.benchmarks
 
 # ── Node (frontend) ───────────────────────────────────────────────────────────
 frontend/node_modules/
@@ -55,8 +57,10 @@ frontend/dist/
 frontend/build/
 
 # ── Notebooks ────────────────────────────────────────────────────────────────
-notebooks/**/.ipynb_checkpoints/
+notebooks/
+scripts
 
 # ── Workflows ────────────────────────────────────────────────────────────────
 .github/workflows/lint.yml
 .github/workflows/test.yml
+complete_workflow.txt

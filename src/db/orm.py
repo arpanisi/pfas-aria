@@ -5,6 +5,11 @@ All PostgreSQL tables for PFAS-ARIA.
 Tables:
   runs              — pipeline run metadata
   data_versions     — experimental dataset versions
+  experiment_segmentation_batches — structured regime segmentation per file/batch
+  experiment_segmented_regimes    — regimes within a batch
+  experiment_regime_rows          — row index membership per regime
+  experiment_regime_column_stats  — per-regime column summaries
+  experiment_regime_regression_specs — regression column lists per regime
   papers            — corpus paper registry
   regimes           — detected data regimes per run
   hypotheses        — generated hypotheses per round
@@ -51,11 +56,13 @@ def _now() -> datetime:
 class Run(Base):
     __tablename__ = "runs"
     __table_args__ = (
+        Index("ix_runs_user_sub", "user_sub"),
         Index("ix_runs_status", "status"),
         Index("ix_runs_created_at", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    user_sub: Mapped[str] = mapped_column(String(255), nullable=False, default="legacy")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     run_name: Mapped[str] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(50), default="initializing")
@@ -75,6 +82,9 @@ class Run(Base):
     data_version: Mapped[DataVersion | None] = relationship(back_populates="runs")
     regimes: Mapped[list[Regime]] = relationship(back_populates="run")
     hypotheses: Mapped[list[Hypothesis]] = relationship(back_populates="run")
+    segmentation_batches: Mapped[list[ExperimentSegmentationBatch]] = relationship(
+        back_populates="run"
+    )
 
 
 # ── Data versions ─────────────────────────────────────────────────────────────
@@ -97,6 +107,35 @@ class DataVersion(Base):
     parquet_path: Mapped[str] = mapped_column(String(512), nullable=True)
 
     runs: Mapped[list[Run]] = relationship(back_populates="data_version")
+    segmentation_batches: Mapped[list[ExperimentSegmentationBatch]] = relationship(
+        back_populates="data_version"
+    )
+
+
+# ── Upload label-encoding registry (PostgreSQL) ───────────────────────────────
+
+
+class DatasetUploadEncoding(Base):
+    """
+    Persists per-column encoding maps for each user's uploaded filename.
+
+    Used to invert label codes back to raw spreadsheet values after modeling.
+    """
+
+    __tablename__ = "dataset_upload_encodings"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_sub", "filename", name="uq_dataset_upload_enc_user_file"
+        ),
+        Index("ix_dataset_upload_enc_user", "user_sub"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_sub: Mapped[str] = mapped_column(String(255))
+    filename: Mapped[str] = mapped_column(String(512))
+    encodings: Mapped[dict] = mapped_column(JSON, default=dict)
+    variable_layout: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
 # ── Corpus papers ─────────────────────────────────────────────────────────────
@@ -104,9 +143,13 @@ class DataVersion(Base):
 
 class Paper(Base):
     __tablename__ = "papers"
-    __table_args__ = (UniqueConstraint("content_hash"),)
+    __table_args__ = (
+        UniqueConstraint("user_sub", "content_hash", name="uq_papers_user_hash"),
+        Index("ix_papers_user_sub", "user_sub"),
+    )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    user_sub: Mapped[str] = mapped_column(String(255), nullable=False, default="legacy")
     filename: Mapped[str] = mapped_column(String(255))
     content_hash: Mapped[str] = mapped_column(String(64))
     title: Mapped[str] = mapped_column(Text, nullable=True)
@@ -137,6 +180,153 @@ class Regime(Base):
     summary_stats: Mapped[dict] = mapped_column(JSON, default=dict)
 
     run: Mapped[Run] = relationship(back_populates="regimes")
+
+
+# ── Experimental segmentation (structured regimes, SQL-friendly) ─────────────
+
+
+class ExperimentSegmentationBatch(Base):
+    """
+    One segmentation pass over a dataset file (e.g. one Excel workbook).
+    Normalizes the old ``results_iter[iter]`` dict into queryable rows.
+    """
+
+    __tablename__ = "experiment_segmentation_batches"
+    __table_args__ = (
+        Index("ix_exp_seg_batch_data_version", "data_version_id"),
+        Index("ix_exp_seg_batch_run", "run_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    data_version_id: Mapped[str | None] = mapped_column(
+        ForeignKey("data_versions.id"), nullable=True
+    )
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id"), nullable=True)
+    batch_index: Mapped[int] = mapped_column(Integer, default=0)
+    source_filename: Mapped[str] = mapped_column(String(512))
+    segmentation_method: Mapped[str] = mapped_column(
+        String(100), default="legacy_masks"
+    )
+    panel_entity_col: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    panel_time_col: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Dataset-level column lists (same as legacy result_iter top-level lists)
+    dataset_columns: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    data_version: Mapped[DataVersion | None] = relationship(
+        back_populates="segmentation_batches"
+    )
+    run: Mapped[Run | None] = relationship(back_populates="segmentation_batches")
+    segmented_regimes: Mapped[list[ExperimentSegmentedRegime]] = relationship(
+        back_populates="batch", cascade="all, delete-orphan"
+    )
+
+
+class ExperimentSegmentedRegime(Base):
+    """One scientific regime within a batch (e.g. r1..r5 in the legacy notebook)."""
+
+    __tablename__ = "experiment_segmented_regimes"
+    __table_args__ = (
+        UniqueConstraint(
+            "batch_id", "regime_code", name="uq_exp_seg_regime_batch_code"
+        ),
+        Index("ix_exp_seg_regime_batch", "batch_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    batch_id: Mapped[str] = mapped_column(
+        ForeignKey("experiment_segmentation_batches.id", ondelete="CASCADE")
+    )
+    regime_code: Mapped[str] = mapped_column(String(50))
+    n_rows: Mapped[int] = mapped_column(Integer, default=0)
+    conditions_json: Mapped[list] = mapped_column(JSON, default=list)
+    extra_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    batch: Mapped[ExperimentSegmentationBatch] = relationship(
+        back_populates="segmented_regimes"
+    )
+    row_memberships: Mapped[list[ExperimentRegimeRow]] = relationship(
+        back_populates="segmented_regime", cascade="all, delete-orphan"
+    )
+    column_stats: Mapped[list[ExperimentRegimeColumnStat]] = relationship(
+        back_populates="segmented_regime", cascade="all, delete-orphan"
+    )
+    regression_spec: Mapped[ExperimentRegimeRegressionSpec | None] = relationship(
+        back_populates="segmented_regime",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+
+class ExperimentRegimeRow(Base):
+    """Maps a regime to source dataframe row indices (provenance)."""
+
+    __tablename__ = "experiment_regime_rows"
+    __table_args__ = (
+        Index("ix_exp_regime_rows_regime", "segmented_regime_id"),
+        Index(
+            "ix_exp_regime_rows_source_idx", "segmented_regime_id", "source_row_index"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    segmented_regime_id: Mapped[str] = mapped_column(
+        ForeignKey("experiment_segmented_regimes.id", ondelete="CASCADE")
+    )
+    source_row_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_row_label: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    segmented_regime: Mapped[ExperimentSegmentedRegime] = relationship(
+        back_populates="row_memberships"
+    )
+
+
+class ExperimentRegimeColumnStat(Base):
+    """Per-regime, per-column summary (constants vs varying inputs)."""
+
+    __tablename__ = "experiment_regime_column_stats"
+    __table_args__ = (
+        UniqueConstraint(
+            "segmented_regime_id",
+            "column_name",
+            name="uq_exp_regime_col_stat",
+        ),
+        Index("ix_exp_regime_col_regime", "segmented_regime_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    segmented_regime_id: Mapped[str] = mapped_column(
+        ForeignKey("experiment_segmented_regimes.id", ondelete="CASCADE")
+    )
+    column_name: Mapped[str] = mapped_column(String(512))
+    column_role: Mapped[str] = mapped_column(String(50), default="input")
+    is_constant_in_regime: Mapped[bool] = mapped_column(Boolean, default=False)
+    n_distinct: Mapped[int] = mapped_column(Integer, default=0)
+    dtype: Mapped[str] = mapped_column(String(80), default="unknown")
+    value_counts: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    segmented_regime: Mapped[ExperimentSegmentedRegime] = relationship(
+        back_populates="column_stats"
+    )
+
+
+class ExperimentRegimeRegressionSpec(Base):
+    """Regression-facing column grouping for one regime (legacy regression_cols)."""
+
+    __tablename__ = "experiment_regime_regression_specs"
+
+    segmented_regime_id: Mapped[str] = mapped_column(
+        ForeignKey("experiment_segmented_regimes.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    candidate_inputs: Mapped[list] = mapped_column(JSON, default=list)
+    categorical_inputs: Mapped[list] = mapped_column(JSON, default=list)
+    numeric_inputs: Mapped[list] = mapped_column(JSON, default=list)
+    outputs: Mapped[list] = mapped_column(JSON, default=list)
+
+    segmented_regime: Mapped[ExperimentSegmentedRegime] = relationship(
+        back_populates="regression_spec"
+    )
 
 
 # ── Hypotheses ────────────────────────────────────────────────────────────────

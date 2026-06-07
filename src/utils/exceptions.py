@@ -32,7 +32,7 @@ class RAGError(ARIAError):
 
 
 class VectorStoreError(RAGError):
-    """Raised when ChromaDB operations fail."""
+    """Raised when vector / retrieval operations fail."""
 
 
 # ── Agent ────────────────────────────────────────────────────────────────────
