@@ -28,6 +28,8 @@ services:
         sync: false
       - key: OPENROUTER_API_KEY
         sync: false
+      - key: JINA_API_KEY
+        sync: false
       - key: SEMANTIC_SCHOLAR_API_KEY
         sync: false
 
