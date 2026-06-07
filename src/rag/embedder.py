@@ -1,13 +1,15 @@
 """
 Embedder.
-Wraps sentence-transformers to produce embeddings for RAG and similarity scoring.
-Singleton pattern — model loads once and is reused across all agents.
+Calls Jina AI Embeddings API to produce vectors for RAG and similarity scoring.
+Singleton pattern — client initialises once and is reused across all agents.
 """
 
 from __future__ import annotations
 
-from typing import Any
+import os
+from typing import cast
 
+import httpx
 import numpy as np
 
 from src.utils.config import get_settings
@@ -15,56 +17,58 @@ from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-_sentence_transformer_cls: Any | None = None
+_JINA_URL = "https://api.jina.ai/v1/embeddings"
+
 _instance: Embedder | None = None
 
 
-def _load_sentence_transformer() -> Any:
-    global _sentence_transformer_cls
-    if _sentence_transformer_cls is None:
-        try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError as exc:
-            raise RuntimeError(
-                "RAG embeddings require the optional sentence-transformers package"
-            ) from exc
-        _sentence_transformer_cls = SentenceTransformer
-    return _sentence_transformer_cls
-
-
 class Embedder:
-    """Thin wrapper around SentenceTransformer with batch encoding."""
+    """Calls Jina Embeddings API. Vectors are L2-normalised by the API."""
 
     def __init__(self) -> None:
-        cfg = get_settings().embeddings
-        logger.info(f"Loading embedding model: {cfg.model} on {cfg.device}")
-        self._model = _load_sentence_transformer()(cfg.model, device=cfg.device)
-        self._model_name = cfg.model
-        logger.info("Embedding model ready")
+        api_key = os.getenv("JINA_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError(
+                "JINA_API_KEY is not set — add it to your .env or Render env vars"
+            )
+        self._headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        self._model = get_settings().embeddings.model
+        logger.info("Jina embedder ready: {}", self._model)
+
+    def _call(self, texts: list[str], task: str) -> np.ndarray:
+        resp = httpx.post(
+            _JINA_URL,
+            headers=self._headers,
+            json={
+                "model": self._model,
+                "input": texts,
+                "task": task,
+                "normalized": True,
+            },
+            timeout=60,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        vecs: list[list[float]] = [
+            item["embedding"] for item in sorted(data["data"], key=lambda x: x["index"])
+        ]
+        return cast(np.ndarray, np.array(vecs, dtype=np.float32))
 
     def embed(self, texts: list[str]) -> np.ndarray:
-        """Embed a list of texts. Returns shape (n, embedding_dim)."""
+        """Embed corpus passages. Returns shape (n, embedding_dim)."""
         if not texts:
             raise ValueError("Cannot embed empty list")
-
-        raw = self._model.encode(
-            texts,
-            batch_size=32,
-            show_progress_bar=len(texts) > 50,
-            normalize_embeddings=True,  # cosine similarity via dot product
-            convert_to_numpy=True,
-        )
-        embeddings: np.ndarray = np.array(raw)
-        return embeddings
+        return self._call(texts, "retrieval.passage")
 
     def embed_one(self, text: str) -> np.ndarray:
-        """Embed a single text. Returns shape (embedding_dim,)."""
-        result: np.ndarray = self.embed([text])[0]
-        return result
+        """Embed a single query. Returns shape (embedding_dim,)."""
+        return self._call([text], "retrieval.query")[0]
 
     def similarity(self, a: np.ndarray, b: np.ndarray) -> float:
-        """Cosine similarity between two embedding vectors."""
-        # Embeddings are already normalized so dot product = cosine sim
+        """Cosine similarity — vectors are already normalised so dot product suffices."""
         return float(np.dot(a, b))
 
     def batch_similarity(self, query: np.ndarray, corpus: np.ndarray) -> np.ndarray:
@@ -75,7 +79,7 @@ class Embedder:
 
     @property
     def model_name(self) -> str:
-        return self._model_name
+        return self._model
 
 
 def get_embedder() -> Embedder:

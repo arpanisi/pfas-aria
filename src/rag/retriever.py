@@ -11,6 +11,7 @@ import hashlib
 import json
 from typing import Any
 
+from src.rag.reranker import Reranker
 from src.rag.vector_store import RetrievedChunk, VectorStore
 from src.utils.logging import get_logger
 
@@ -31,6 +32,7 @@ class Retriever:
 
     def __init__(self, vector_store: VectorStore) -> None:
         self._store = vector_store
+        self._reranker = Reranker()
         self._redis_available = self._check_redis()
 
     def _check_redis(self) -> bool:
@@ -110,6 +112,7 @@ class Retriever:
 
         logger.debug(f"RAG query: '{query[:80]}' top_k={top_k}")
         results = self._store.search(query, top_k=top_k, min_similarity=min_similarity)
+        results = self._reranker.rerank(query, results)
         self._set_cache(cache_key, results)
         logger.debug(f"Retrieved {len(results)} chunks")
         return results

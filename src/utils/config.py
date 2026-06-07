@@ -81,8 +81,7 @@ class LLMConfig(BaseModel):
 
 
 class EmbeddingConfig(BaseModel):
-    model: str = "all-MiniLM-L6-v2"
-    device: str = "cpu"
+    model: str = "jina-embeddings-v3"
 
 
 class VectorStoreConfig(BaseModel):
