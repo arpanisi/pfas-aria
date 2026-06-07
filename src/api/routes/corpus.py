@@ -1,17 +1,29 @@
 """
 Corpus Routes.
 Endpoints for managing the scientific paper corpus.
-Upload PDFs, check indexing status, view paper registry.
+Upload PDFs, index them immediately into MongoDB/PostgreSQL, and expose corpus stats.
 """
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import uuid
+from datetime import datetime
+from pathlib import Path
+from typing import cast
+
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from pymongo import UpdateOne
+from sqlalchemy import delete, select
 
 from src.api.deps import CurrentUser, DBSession
+from src.api.tenant import current_user_sub, safe_upload_filename, tenant_storage_key
+from src.db.mongodb import get_mongo_db
 from src.db.orm import Paper
+from src.etl.corpus.processor import CorpusProcessor
+from src.rag.pipeline import clear_rag_cache
 from src.utils.logging import get_logger
 from src.utils.paths import CORPUS_DIR
 
@@ -36,10 +48,107 @@ class CorpusStats(BaseModel):
     papers: list[PaperOut]
 
 
+class UploadPaperOut(BaseModel):
+    filename: str
+    size_bytes: int
+    status: str
+    paper_id: str
+    n_chunks: int
+    n_tokens: int
+    source: str = "uploaded"
+    message: str
+
+
+class DeleteCorpusOut(BaseModel):
+    status: str
+    deleted_papers: int
+    deleted_chunks: int
+
+
+def _sha256_bytes(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+def _chunk_content_hash(paper_hash: str, chunk_index: int, text: str) -> str:
+    payload = f"{paper_hash}:{chunk_index}:{text}".encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+class DomainContextOut(BaseModel):
+    domain_context: str
+    n_papers: int
+    corpus_fingerprint: str
+
+
+# Process-level cache — survives repeated calls until corpus or dataset columns change.
+_domain_cache: dict[str, str] = {"cache_key": "", "context": ""}
+
+
+def _corpus_fingerprint(paper_ids: list[str]) -> str:
+    payload = "|".join(sorted(paper_ids)).encode()
+    return hashlib.md5(payload, usedforsecurity=False).hexdigest()
+
+
+def _domain_context_cache_key(
+    user_sub: str, corpus_fingerprint: str, col_names: list[str]
+) -> str:
+    cols = "|".join(str(c) for c in col_names[:80]).encode()
+    col_fingerprint = hashlib.md5(cols, usedforsecurity=False).hexdigest()
+    return f"{user_sub}:{corpus_fingerprint}:{col_fingerprint}"
+
+
+@router.post("/domain-context", response_model=DomainContextOut)
+async def infer_domain_context(
+    payload: dict,
+    user: CurrentUser,
+    db: DBSession,
+) -> DomainContextOut:
+    """Infer a one-line domain description from dataset columns + corpus paper titles."""
+    user_sub = current_user_sub(user)
+    col_names: list[str] = payload.get("col_names", [])
+    result = await db.execute(
+        select(Paper).where(Paper.user_sub == user_sub).order_by(Paper.parsed_at.desc())
+    )
+    papers = result.scalars().all()
+
+    fingerprint = _corpus_fingerprint([p.id for p in papers])
+    cache_key = _domain_context_cache_key(user_sub, fingerprint, col_names)
+
+    if len(papers) < 3:
+        _domain_cache["cache_key"] = ""
+        _domain_cache["context"] = ""
+        return DomainContextOut(
+            domain_context="", n_papers=len(papers), corpus_fingerprint=fingerprint
+        )
+
+    if cache_key == _domain_cache.get("cache_key") and _domain_cache.get("context"):
+        return DomainContextOut(
+            domain_context=_domain_cache["context"],
+            n_papers=len(papers),
+            corpus_fingerprint=fingerprint,
+        )
+
+    paper_titles = [p.title for p in papers if p.title]
+
+    def _infer() -> str:
+        from src.utils.domain_context import infer_domain_context
+
+        return cast(str, infer_domain_context(col_names, paper_titles))
+
+    context = await asyncio.to_thread(_infer)
+    _domain_cache["cache_key"] = cache_key
+    _domain_cache["context"] = context
+    return DomainContextOut(
+        domain_context=context, n_papers=len(papers), corpus_fingerprint=fingerprint
+    )
+
+
 @router.get("/stats", response_model=CorpusStats)
 async def get_corpus_stats(user: CurrentUser, db: DBSession) -> CorpusStats:
-    """Return corpus statistics and paper list."""
-    result = await db.execute(select(Paper).order_by(Paper.parsed_at.desc()))
+    user_sub = current_user_sub(user)
+    result = await db.execute(
+        select(Paper).where(Paper.user_sub == user_sub).order_by(Paper.parsed_at.desc())
+    )
     papers = result.scalars().all()
 
     return CorpusStats(
@@ -61,47 +170,247 @@ async def get_corpus_stats(user: CurrentUser, db: DBSession) -> CorpusStats:
     )
 
 
-@router.post("/upload", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/upload", response_model=UploadPaperOut)
 async def upload_paper(
     user: CurrentUser,
+    db: DBSession,
     file: UploadFile = File(...),
-) -> dict:
+) -> UploadPaperOut:
     """
-    Upload a PDF to the corpus directory.
-    The paper will be processed and indexed on the next pipeline run.
+    Upload and ingest a PDF immediately.
+
+    Current scope:
+      PDF -> text extraction -> chunks -> MongoDB papers/chunks (``embedding`` filled on first RAG build) -> PostgreSQL registry.
     """
-    if not file.filename or not file.filename.endswith(".pdf"):
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            "Only PDF files are accepted",
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only PDF files are accepted")
+
+    user_sub = current_user_sub(user)
+    content = await file.read()
+    if not content:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uploaded PDF is empty")
+
+    content_hash = _sha256_bytes(content)
+
+    existing_result = await db.execute(
+        select(Paper).where(
+            Paper.user_sub == user_sub,
+            Paper.content_hash == content_hash,
+        )
+    )
+    existing = existing_result.scalar_one_or_none()
+    if existing:
+        logger.info(f"PDF already indexed: {file.filename} ({content_hash[:8]})")
+        return UploadPaperOut(
+            filename=existing.filename,
+            size_bytes=len(content),
+            status="already_indexed",
+            paper_id=existing.id,
+            n_chunks=existing.n_chunks,
+            n_tokens=existing.n_tokens,
+            source=existing.source,
+            message="Paper already exists in corpus",
         )
 
-    content = await file.read()
-    CORPUS_DIR.mkdir(parents=True, exist_ok=True)
-    dest = CORPUS_DIR / file.filename
+    tenant_dir = CORPUS_DIR / tenant_storage_key(user_sub)
+    tenant_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_name = safe_upload_filename(file.filename)
+    dest = tenant_dir / safe_name
+    if dest.exists():
+        dest = tenant_dir / f"{Path(safe_name).stem}_{content_hash[:8]}.pdf"
+
     dest.write_bytes(content)
 
-    logger.info(f"PDF uploaded to corpus: {file.filename} ({len(content)} bytes)")
+    logger.info(f"PDF ingestion started: {file.filename} ({len(content)} bytes)")
 
-    return {
-        "filename": file.filename,
-        "size_bytes": len(content),
-        "status": "queued_for_indexing",
-        "message": "Paper will be indexed on the next pipeline run",
-    }
+    processor = CorpusProcessor()
+    processed = processor.process_pdf(dest)
+
+    if not processed.success or not processed.chunks:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"Could not extract usable text from PDF: {processed.error or 'no chunks'}",
+        )
+
+    paper_id = str(uuid.uuid4())
+    now = datetime.utcnow()
+    mongo_db = get_mongo_db()
+
+    chunk_docs: list[dict] = []
+    mongo_chunk_ids: list[str] = []
+
+    for chunk in processed.chunks:
+        chunk_hash = getattr(chunk, "content_hash", None) or _chunk_content_hash(
+            content_hash, chunk.chunk_index, chunk.text
+        )
+        chunk_id = f"{paper_id}:{chunk.chunk_index}"
+        mongo_chunk_ids.append(chunk_id)
+
+        chunk_docs.append(
+            {
+                "_id": chunk_id,
+                "user_sub": user_sub,
+                "chunk_id": chunk_id,
+                "paper_id": paper_id,
+                "paper_content_hash": content_hash,
+                "content_hash": chunk_hash,
+                "filename": processed.filename,
+                "title": processed.title,
+                "chunk_index": chunk.chunk_index,
+                "text": chunk.text,
+                "n_tokens": chunk.n_tokens,
+                "source": "uploaded",
+                "source_type": "uploaded",
+                "source_provider": "manual_upload",
+                "metadata": {
+                    **chunk.metadata,
+                    "user_sub": user_sub,
+                    "paper_id": paper_id,
+                    "content_hash": chunk_hash,
+                    "paper_content_hash": content_hash,
+                    "source_type": "uploaded",
+                    "source_provider": "manual_upload",
+                },
+                "created_at": now,
+                "embedding": None,
+                "embedding_model": None,
+                "embedded_at": None,
+            }
+        )
+
+    await mongo_db["papers"].update_one(
+        {"user_sub": user_sub, "content_hash": content_hash},
+        {
+            "$setOnInsert": {"_id": paper_id},
+            "$set": {
+                "user_sub": user_sub,
+                "paper_id": paper_id,
+                "filename": processed.filename,
+                "title": processed.title,
+                "content_hash": content_hash,
+                "n_chunks": processed.n_chunks,
+                "n_tokens": processed.n_tokens,
+                "source": "uploaded",
+                "source_type": "uploaded",
+                "source_provider": "manual_upload",
+                "created_at": now,
+                "indexed_at": now,
+                "embedding_model": None,
+                "local_path": str(dest),
+            },
+        },
+        upsert=True,
+    )
+
+    if chunk_docs:
+        await mongo_db["chunks"].bulk_write(
+            [
+                UpdateOne(
+                    {"user_sub": user_sub, "content_hash": doc["content_hash"]},
+                    {
+                        "$setOnInsert": {"_id": doc["_id"]},
+                        "$set": {k: v for k, v in doc.items() if k != "_id"},
+                    },
+                    upsert=True,
+                )
+                for doc in chunk_docs
+            ],
+            ordered=False,
+        )
+
+    paper = Paper(
+        id=paper_id,
+        user_sub=user_sub,
+        filename=dest.name,
+        content_hash=content_hash,
+        title=processed.title,
+        parsed_at=now,
+        n_chunks=processed.n_chunks,
+        n_tokens=processed.n_tokens,
+        embedding_model="none",
+        indexed_at=now,
+        chunk_size=processor.chunk_size,
+        source="uploaded",
+        mongo_chunk_ids=mongo_chunk_ids,
+    )
+    db.add(paper)
+    await db.flush()
+
+    logger.info(
+        f"PDF ingested into corpus: {processed.filename} "
+        f"({processed.n_chunks} chunks, {processed.n_tokens} tokens)"
+    )
+
+    clear_rag_cache(user_sub=user_sub)
+    return UploadPaperOut(
+        filename=paper.filename,
+        size_bytes=len(content),
+        status="indexed",
+        paper_id=paper.id,
+        n_chunks=paper.n_chunks,
+        n_tokens=paper.n_tokens,
+        source=paper.source,
+        message="Paper indexed into corpus",
+    )
 
 
-@router.delete("/{paper_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("", response_model=DeleteCorpusOut)
+@router.delete("/", response_model=DeleteCorpusOut)
+async def clear_corpus(user: CurrentUser, db: DBSession) -> DeleteCorpusOut:
+    user_sub = current_user_sub(user)
+    result = await db.execute(select(Paper).where(Paper.user_sub == user_sub))
+    papers = result.scalars().all()
+
+    mongo_db = get_mongo_db()
+
+    # Wipe this tenant's MongoDB documents, including any orphaned chunks.
+    chunks_result = await mongo_db["chunks"].delete_many({"user_sub": user_sub})
+    deleted_chunks = int(chunks_result.deleted_count)
+    await mongo_db["papers"].delete_many({"user_sub": user_sub})
+
+    await db.execute(delete(Paper).where(Paper.user_sub == user_sub))
+
+    tenant_dir = CORPUS_DIR / tenant_storage_key(user_sub)
+    if tenant_dir.exists():
+        for path in tenant_dir.iterdir():
+            if not path.is_file():
+                continue
+            try:
+                path.unlink()
+            except OSError:
+                logger.warning(f"Could not delete local corpus PDF: {path}")
+
+    clear_rag_cache(user_sub=user_sub)
+    logger.info(f"Cleared corpus: {len(papers)} papers, {deleted_chunks} chunks")
+
+    return DeleteCorpusOut(
+        status="cleared",
+        deleted_papers=len(papers),
+        deleted_chunks=deleted_chunks,
+    )
+
+
+@router.delete(
+    "/{paper_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 async def delete_paper(paper_id: str, user: CurrentUser, db: DBSession) -> None:
-    """Remove a paper from the corpus registry and delete the PDF."""
+    user_sub = current_user_sub(user)
     paper = await db.get(Paper, paper_id)
-    if not paper:
+    if not paper or paper.user_sub != user_sub:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Paper {paper_id} not found")
 
-    # Delete PDF file
-    pdf_path = CORPUS_DIR / paper.filename
+    mongo_db = get_mongo_db()
+    await mongo_db["chunks"].delete_many({"user_sub": user_sub, "paper_id": paper_id})
+    await mongo_db["papers"].delete_many({"user_sub": user_sub, "paper_id": paper_id})
+
+    pdf_path = CORPUS_DIR / tenant_storage_key(user_sub) / paper.filename
     if pdf_path.exists():
         pdf_path.unlink()
 
     await db.delete(paper)
-    logger.info(f"Deleted paper: {paper.filename}")
+    clear_rag_cache(user_sub=user_sub)
+
+    logger.info(f"Deleted paper from corpus: {paper.filename}")

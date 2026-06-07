@@ -130,7 +130,9 @@ class CorpusLoader:
 
         documents = []
         for i, chunk_text in enumerate(chunks):
-            doc_id = hashlib.md5(f"{path.name}_{i}".encode()).hexdigest()[:12]
+            doc_id = hashlib.md5(
+                f"{path.name}_{i}".encode(), usedforsecurity=False
+            ).hexdigest()[:12]
 
             documents.append(
                 Document(
@@ -190,12 +192,15 @@ class CorpusLoader:
         text_len = len(text)
 
         while start < text_len:
-            end = min(start + chars_per_chunk, text_len)
+            hard_end = min(start + chars_per_chunk, text_len)
+            end = hard_end
 
-            # Try to break at sentence boundary
-            if end < text_len:
-                for boundary in [". ", ".\n", "\n\n"]:
-                    pos = text.rfind(boundary, start, end)
+            # Try to break near the intended end. Searching the whole window can
+            # snap to an early sentence and advance by one character repeatedly.
+            if hard_end < text_len:
+                min_boundary = start + int(chars_per_chunk * 0.70)
+                for boundary in ["\n\n", ".\n", ". "]:
+                    pos = text.rfind(boundary, min_boundary, hard_end)
                     if pos != -1:
                         end = pos + len(boundary)
                         break
@@ -204,6 +209,8 @@ class CorpusLoader:
             if chunk:
                 chunks.append(chunk)
 
+            if end >= text_len:
+                break
             start = max(start + 1, end - overlap_chars)
 
         return chunks

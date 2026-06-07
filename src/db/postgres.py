@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -50,8 +51,72 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:  # type: ignore[o
 
 async def create_all_tables() -> None:
     """Create all tables. Called at startup if running without Alembic."""
+    import src.db.orm  # noqa: F401 — register all models on Base.metadata
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+async def ensure_tenant_isolation_schema() -> None:
+    """Apply idempotent tenant-isolation DDL for existing databases."""
+    statements = [
+        """
+        ALTER TABLE runs
+        ADD COLUMN IF NOT EXISTS user_sub VARCHAR(255) NOT NULL DEFAULT 'legacy'
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_runs_user_sub ON runs (user_sub)",
+        """
+        ALTER TABLE papers
+        ADD COLUMN IF NOT EXISTS user_sub VARCHAR(255) NOT NULL DEFAULT 'legacy'
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_papers_user_sub ON papers (user_sub)",
+        """
+        DO $$
+        DECLARE
+            constraint_name text;
+        BEGIN
+            SELECT c.conname
+            INTO constraint_name
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE t.relname = 'papers'
+              AND n.nspname = current_schema()
+              AND c.contype = 'u'
+              AND (
+                  SELECT array_agg(a.attname::text ORDER BY a.attnum)
+                  FROM unnest(c.conkey) AS ck(attnum)
+                  JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ck.attnum
+              ) = ARRAY['content_hash']::text[];
+
+            IF constraint_name IS NOT NULL THEN
+                EXECUTE format('ALTER TABLE papers DROP CONSTRAINT %I', constraint_name);
+            END IF;
+        END
+        $$;
+        """,
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint c
+                JOIN pg_class t ON t.oid = c.conrelid
+                JOIN pg_namespace n ON n.oid = t.relnamespace
+                WHERE c.conname = 'uq_papers_user_hash'
+                  AND t.relname = 'papers'
+                  AND n.nspname = current_schema()
+            ) THEN
+                ALTER TABLE papers
+                ADD CONSTRAINT uq_papers_user_hash UNIQUE (user_sub, content_hash);
+            END IF;
+        END
+        $$;
+        """,
+    ]
+    async with engine.begin() as conn:
+        for statement in statements:
+            await conn.execute(text(statement.strip()))
 
 
 async def create_materialized_views() -> None:
@@ -125,7 +190,7 @@ async def create_materialized_views() -> None:
     async with engine.begin() as conn:
         for sql in views:
             try:
-                await conn.execute(__import__("sqlalchemy").text(sql.strip()))
+                await conn.execute(text(sql.strip()))
             except Exception:
                 # Views may already exist — not an error
                 pass
@@ -139,18 +204,16 @@ async def refresh_materialized_views() -> None:
     """
     from sqlalchemy import text
 
-    view_names = [
-        "mv_run_convergence",
-        "mv_top_variables",
-        "mv_top_citations",
+    refresh_statements = [
+        text("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_run_convergence"),
+        text("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_top_variables"),
+        text("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_top_citations"),
     ]
 
     async with engine.begin() as conn:
-        for view in view_names:
+        for statement in refresh_statements:
             try:
-                await conn.execute(
-                    text(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view}")
-                )
+                await conn.execute(statement)
             except Exception:
                 # Non-critical — dashboard falls back to live queries
                 pass

@@ -86,6 +86,7 @@ class ModelingEngine:
         Always fits one model on the full dataset.
 
         Returns list of ModelResult (one global + one per regime if requested).
+        For two_stage, returns two results per fit (kinetics + treatment).
         """
         results = []
 
@@ -94,8 +95,10 @@ class ModelingEngine:
             f"Fitting [{hypothesis.model_family}] for {hypothesis.id} "
             f"on full dataset (n={len(df)})"
         )
-        result = self._fit(hypothesis, df, label="global")
-        results.append(result)
+        if hypothesis.model_family == "two_stage":
+            results.extend(self._fit_two_stage(hypothesis, df, label="global"))
+        else:
+            results.append(self._fit(hypothesis, df, label="global"))
 
         # Per-regime models
         if per_regime and "regime" in df.columns:
@@ -110,8 +113,12 @@ class ModelingEngine:
                     f"Fitting [{hypothesis.model_family}] for {hypothesis.id} "
                     f"on {regime_label} (n={len(regime_df)})"
                 )
-                r = self._fit(hypothesis, regime_df, label=regime_label)
-                results.append(r)
+                if hypothesis.model_family == "two_stage":
+                    results.extend(
+                        self._fit_two_stage(hypothesis, regime_df, label=regime_label)
+                    )
+                else:
+                    results.append(self._fit(hypothesis, regime_df, label=regime_label))
 
         return results
 
@@ -120,6 +127,11 @@ class ModelingEngine:
     def _fit(self, hypothesis: Hypothesis, df: pd.DataFrame, label: str) -> ModelResult:
         """Prepare data and dispatch to the correct model family."""
         try:
+            # XGBoost handles NaN natively — bypass the standard dropna-based prepare_data
+            # so that sparse features don't eliminate all rows before reaching the model.
+            if hypothesis.model_family == "xgboost":
+                return self._fit_xgboost(hypothesis, df, label)
+
             x_design, y, col_names = self._prepare_data(hypothesis, df)
 
             if x_design.shape[0] < x_design.shape[1] + 2:
@@ -140,6 +152,12 @@ class ModelingEngine:
                 return self._fit_gradient_boosting(
                     hypothesis, x_design, y, col_names, df, label
                 )
+            elif model_type == "xgboost":
+                return self._fit_xgboost(hypothesis, df, label)  # should not reach here
+            elif model_type == "two_stage":
+                # Should be intercepted in run() before reaching here,
+                # but fall back to OLS for safety.
+                return self._fit_ols(hypothesis, x_design, y, col_names, df, label)
             else:
                 return self._fit_ols(hypothesis, x_design, y, col_names, df, label)
 
@@ -399,6 +417,357 @@ class ModelingEngine:
             model_object=gb,
             residuals=residuals,
             fitted_values=pd.Series(y_pred, index=y.index),
+        )
+
+    # ── XGBoost ───────────────────────────────────────────────────────────────
+
+    def _fit_xgboost(
+        self,
+        hypothesis: Hypothesis,
+        df: pd.DataFrame,
+        label: str,
+    ) -> ModelResult:
+        """
+        XGBoost regressor with NaN-native handling.
+
+        Unlike OLS/LASSO, XGBoost accepts NaN values in X natively (tree splitting
+        learns the optimal direction for missing values). This means the feature
+        matrix is built from ALL hypothesis-specified columns without global dropna,
+        accessing more features than OLS on sparse datasets.
+
+        Outcome y must be complete (rows with missing y are dropped).
+        """
+        import xgboost as xgb
+
+        outcome = hypothesis.outcome_variable
+        primary_vars = list(dict.fromkeys(hypothesis.primary_variables))
+        control_vars = list(dict.fromkeys(hypothesis.control_variables))
+        all_vars = list(dict.fromkeys(primary_vars + control_vars))
+        available = [c for c in all_vars if c in df.columns]
+
+        if not available:
+            return self._error_result(hypothesis, "No valid columns for XGBoost")
+
+        # Require complete y; keep NaN in X (XGBoost handles them natively)
+        work = df[available + [outcome]].copy()
+        for col in available:
+            work[col] = pd.to_numeric(work[col], errors="coerce")
+        work[outcome] = pd.to_numeric(work[outcome], errors="coerce")
+        work = work[work[outcome].notna()].reset_index(drop=True)
+
+        if len(work) < 10:
+            return self._error_result(
+                hypothesis, f"Too few complete outcome rows: {len(work)}"
+            )
+
+        # Encode categoricals (label-encode; XGBoost needs numeric)
+        x_design = work[available].copy()
+        for col in x_design.select_dtypes(include="object").columns:
+            x_design[col] = pd.factorize(x_design[col])[0].astype(float)
+            x_design[col] = x_design[col].replace(-1, np.nan)
+
+        y = work[outcome].astype(float)
+        used_cols = list(x_design.columns)
+
+        model = xgb.XGBRegressor(
+            n_estimators=300,
+            max_depth=3,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            min_child_weight=3,
+            reg_alpha=0.1,
+            reg_lambda=1.0,
+            random_state=42,
+            tree_method="hist",
+            verbosity=0,
+        )
+        model.fit(x_design, y)
+
+        y_pred = model.predict(x_design)
+        residuals = pd.Series(y.values - y_pred, index=y.index)
+        r2 = float(model.score(x_design, y))
+        n, p = x_design.shape
+        adj_r2 = float(1 - (1 - r2) * (n - 1) / (n - p - 1)) if n > p + 1 else r2
+
+        importance = {
+            col: float(imp) for col, imp in zip(used_cols, model.feature_importances_)
+        }
+        # Top third by importance treated as "significant" (no p-values from XGBoost)
+        top_k = max(1, len(used_cols) // 3)
+        significant = sorted(importance, key=lambda k: importance[k], reverse=True)[
+            :top_k
+        ]
+
+        return ModelResult(
+            hypothesis_id=f"{hypothesis.id}_{label}",
+            model_type="xgboost",
+            outcome_variable=outcome,
+            variables_used=used_cols,
+            interaction_terms=hypothesis.interaction_terms,
+            coefficients=importance,
+            p_values={k: 0.0 for k in used_cols},
+            confidence_intervals={k: (0.0, 0.0) for k in used_cols},
+            standard_errors={k: 0.0 for k in used_cols},
+            r_squared=r2,
+            adj_r_squared=adj_r2,
+            aic=None,
+            bic=None,
+            n_observations=n,
+            significant_variables=significant,
+            highly_significant=significant[: max(1, top_k // 2)],
+            model_object=model,
+            residuals=residuals,
+            fitted_values=pd.Series(y_pred, index=y.index),
+        )
+
+    # ── Two-Stage Modeling ────────────────────────────────────────────────────
+
+    def _detect_time_col(self, df: pd.DataFrame) -> str | None:
+        """Find the time column by name pattern."""
+        from src.etl.experimental.detector import DERIVED_ENTITY_COL
+
+        for col in df.columns:
+            if col == DERIVED_ENTITY_COL:
+                continue
+            if any(kw in col.lower() for kw in ["time", "hour", "min", "day", "t_"]):
+                if pd.api.types.is_numeric_dtype(df[col]) and df[col].nunique() >= 3:
+                    return str(col)
+        return None
+
+    def _fit_two_stage(
+        self,
+        hypothesis: Hypothesis,
+        df: pd.DataFrame,
+        label: str,
+    ) -> list[ModelResult]:
+        """
+        Two-stage modeling for panel experimental data.
+
+        Stage 1 — Kinetics: PanelOLS fixed effects, entity=unique input combination,
+            time predictor only. The time coefficient is the pooled kinetic rate
+            (% yield per time unit). Within-R² measures how much time alone explains
+            within-entity variation.
+
+        Stage 2 — Treatment effects: Cross-sectional OLS on run-level AUC.
+            One observation per experimental run. Between-entity design variables
+            explain which conditions produce higher integrated fluoride yield.
+        """
+        from src.etl.experimental.detector import add_derived_entity_column
+
+        time_col = self._detect_time_col(df)
+        if time_col is None:
+            return [self._error_result(hypothesis, "two_stage requires a time column")]
+
+        outcome = hypothesis.outcome_variable
+        if outcome not in df.columns:
+            return [self._error_result(hypothesis, f"Outcome {outcome!r} not in df")]
+
+        # Derive entity column from all hypothesis-specified features minus time
+        all_vars = list(
+            dict.fromkeys(hypothesis.primary_variables + hypothesis.control_variables)
+        )
+        input_cols = [c for c in all_vars if c in df.columns and c != time_col]
+        if not input_cols:
+            input_cols = [c for c in df.columns if c not in {time_col, outcome}]
+
+        df = df.copy()
+        entity_col = add_derived_entity_column(df, input_cols, time_col)
+        if entity_col is None:
+            return [
+                self._error_result(
+                    hypothesis, "Could not derive entity column for two_stage"
+                )
+            ]
+
+        results: list[ModelResult] = []
+
+        try:
+            results.append(
+                self._fit_kinetics_stage(
+                    hypothesis, df, entity_col, time_col, outcome, label
+                )
+            )
+        except Exception as e:
+            logger.warning(f"Kinetics stage failed for {hypothesis.id}: {e}")
+            results.append(self._error_result(hypothesis, f"Kinetics stage error: {e}"))
+
+        try:
+            results.append(
+                self._fit_treatment_stage(
+                    hypothesis, df, entity_col, time_col, outcome, input_cols, label
+                )
+            )
+        except Exception as e:
+            logger.warning(f"Treatment stage failed for {hypothesis.id}: {e}")
+            results.append(
+                self._error_result(hypothesis, f"Treatment stage error: {e}")
+            )
+
+        return results
+
+    def _fit_kinetics_stage(
+        self,
+        hypothesis: Hypothesis,
+        df: pd.DataFrame,
+        entity_col: str,
+        time_col: str,
+        outcome: str,
+        label: str,
+    ) -> ModelResult:
+        """PanelOLS FE with time as the only predictor → pooled kinetic rate."""
+        import statsmodels.api as sm
+        from linearmodels.panel import PanelOLS
+
+        work = df[[entity_col, time_col, outcome]].copy()
+        work[time_col] = pd.to_numeric(work[time_col], errors="coerce")
+        work[outcome] = pd.to_numeric(work[outcome], errors="coerce")
+        work = work.dropna()
+
+        if len(work) < 20:
+            raise ModelingError(f"Too few rows for kinetics stage: {len(work)}")
+
+        panel_df = work.set_index([entity_col, time_col])
+        y_panel = panel_df[outcome]
+        x_panel = sm.add_constant(
+            pd.DataFrame({"time": work[time_col].values}, index=panel_df.index)
+        )
+
+        model = PanelOLS(y_panel, x_panel, entity_effects=True, drop_absorbed=True).fit(
+            cov_type="clustered", cluster_entity=True
+        )
+
+        params = model.params.to_dict()
+        pvals = model.pvalues.to_dict()
+        bse = model.std_errors.to_dict()
+        ci_df = model.conf_int()
+        ci = {
+            k: (float(ci_df.loc[k, "lower"]), float(ci_df.loc[k, "upper"]))
+            for k in params
+            if k in ci_df.index
+        }
+
+        return ModelResult(
+            hypothesis_id=f"{hypothesis.id}_{label}_kinetics",
+            model_type="two_stage_kinetics",
+            outcome_variable=outcome,
+            variables_used=[time_col],
+            interaction_terms=[],
+            coefficients={k: float(v) for k, v in params.items()},
+            p_values={k: float(v) for k, v in pvals.items()},
+            confidence_intervals=ci,
+            standard_errors={k: float(v) for k, v in bse.items()},
+            r_squared=float(model.rsquared),  # within R²
+            adj_r_squared=float(getattr(model, "rsquared_adj", model.rsquared)),
+            aic=None,
+            bic=None,
+            n_observations=int(model.nobs),
+            significant_variables=[k for k, v in pvals.items() if v < self.ALPHA],
+            highly_significant=[k for k, v in pvals.items() if v < 0.01],
+            model_object=model,
+        )
+
+    def _fit_treatment_stage(
+        self,
+        hypothesis: Hypothesis,
+        df: pd.DataFrame,
+        entity_col: str,
+        time_col: str,
+        outcome: str,
+        input_cols: list[str],
+        label: str,
+    ) -> ModelResult:
+        """Cross-sectional OLS on run-level AUC using between-entity design variables."""
+        import statsmodels.api as sm
+
+        min_within_fraction = 0.05
+
+        # Identify between-entity features (within-fraction < 5% → not absorbed by FE)
+        between_cols: list[str] = []
+        for col in input_cols:
+            if col not in df.columns:
+                continue
+            s = pd.to_numeric(df[col], errors="coerce")
+            total_var = float(s.var())
+            if total_var < 1e-9:
+                continue
+            # Group on the numeric-coerced series to avoid object-dtype transform errors
+            entity_means = s.groupby(df[entity_col]).transform("mean")
+            within_var = float((s - entity_means).var())
+            if within_var / total_var < min_within_fraction:
+                between_cols.append(col)
+
+        if not between_cols:
+            raise ModelingError(
+                "No between-entity features available for treatment stage"
+            )
+
+        # Aggregate to run level: AUC (trapezoidal) per entity
+        run_records: list[dict] = []
+        for entity_id, grp in df.groupby(entity_col):
+            t_arr = pd.to_numeric(grp[time_col], errors="coerce").values
+            y_arr = pd.to_numeric(grp[outcome], errors="coerce").values
+            mask = np.isfinite(t_arr) & np.isfinite(y_arr)
+            if mask.sum() < 2:
+                continue
+            pairs = sorted(zip(t_arr[mask], y_arr[mask]))
+            t_s, y_s = zip(*pairs)
+            auc = float(np.trapz(y_s, t_s))
+
+            row: dict = {"_entity": entity_id, "_auc": auc}
+            for col in between_cols:
+                vals = pd.to_numeric(grp[col], errors="coerce").dropna()
+                row[col] = float(vals.iloc[0]) if len(vals) > 0 else np.nan
+            run_records.append(row)
+
+        run_df = pd.DataFrame(run_records)
+        n_runs = len(run_df)
+
+        # Keep 100%-dense features at run level; relax to 80% if none survive
+        dense_cols = [c for c in between_cols if int(run_df[c].notna().sum()) == n_runs]
+        if not dense_cols:
+            dense_cols = [c for c in between_cols if run_df[c].notna().mean() >= 0.8]
+        if not dense_cols:
+            raise ModelingError("No dense between-entity features at run level")
+
+        work = run_df[dense_cols + ["_auc"]].dropna()
+        if len(work) < len(dense_cols) + 3:
+            raise ModelingError(f"Too few runs for treatment stage: {len(work)}")
+
+        x_design = sm.add_constant(work[dense_cols].astype(float))
+        y = work["_auc"].astype(float)
+        model = sm.OLS(y, x_design).fit()
+
+        params = {k: float(v) for k, v in model.params.items() if k != "const"}
+        pvals = {k: float(v) for k, v in model.pvalues.items() if k != "const"}
+        bse = {k: float(v) for k, v in model.bse.items() if k != "const"}
+        ci_raw = model.conf_int()
+        ci = {
+            k: (float(ci_raw.loc[k, 0]), float(ci_raw.loc[k, 1]))
+            for k in params
+            if k in ci_raw.index
+        }
+
+        return ModelResult(
+            hypothesis_id=f"{hypothesis.id}_{label}_treatment",
+            model_type="two_stage_treatment",
+            outcome_variable="_auc",
+            variables_used=dense_cols,
+            interaction_terms=[],
+            coefficients=params,
+            p_values=pvals,
+            confidence_intervals=ci,
+            standard_errors=bse,
+            r_squared=float(model.rsquared),
+            adj_r_squared=float(model.rsquared_adj),
+            aic=float(model.aic),
+            bic=float(model.bic),
+            n_observations=int(model.nobs),
+            significant_variables=[k for k, v in pvals.items() if v < self.ALPHA],
+            highly_significant=[k for k, v in pvals.items() if v < 0.01],
+            model_object=model,
+            residuals=pd.Series(model.resid),
+            fitted_values=pd.Series(model.fittedvalues),
         )
 
     # ── Result Extraction ─────────────────────────────────────────────────────

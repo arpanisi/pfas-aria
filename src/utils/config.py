@@ -66,23 +66,30 @@ class ConvergenceConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
-    provider: str = "ollama"
-    model: str = "llama3.1:8b"
+    # openrouter | ollama | runpod  (OpenRouter default; API key from OPENROUTER_API_KEY)
+    provider: str = "openrouter"
+    model: str = "openai/gpt-4o-mini"
+    chat_model: str | None = None  # short-form tasks; falls back to model if unset
+    fallback_models: list[str] = Field(default_factory=list)
     runpod_endpoint: str | None = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_site_url: str | None = None
+    openrouter_site_name: str | None = None
     temperature: float = 0.1
     max_tokens: int = 4096
     request_timeout: int = 120
 
 
 class EmbeddingConfig(BaseModel):
-    model: str = "all-MiniLM-L6-v2"
-    device: str = "cpu"
+    model: str = "jina-embeddings-v3"
 
 
 class VectorStoreConfig(BaseModel):
-    provider: str = "chromadb"
-    persist_directory: str = "data/outputs/chroma"
-    collection_name: str = "pfas_corpus"
+    """RAG vector storage (default: MongoDB ``chunks`` collection)."""
+
+    provider: str = "mongodb"
+    collection_name: str = "chunks"
+    atlas_vector_index: str = "vector_index"
 
 
 class MLflowConfig(BaseModel):

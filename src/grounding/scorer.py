@@ -3,7 +3,7 @@ Grounding Scorer.
 Computes match scores between model findings and literature.
 
 Three components:
-  1. RAG similarity  — cosine similarity against your 50 papers (ChromaDB)
+  1. RAG similarity  — cosine similarity against your corpus (MongoDB-stored embeddings)
   2. arXiv score     — best match against fetched arXiv papers
   3. Validation rate — passed through from ValidationReport
 
@@ -206,7 +206,7 @@ class GroundingScorer:
     # ── Scoring helpers ───────────────────────────────────────────────────────
 
     def _score_against_rag(self, finding_text: str) -> tuple[float, list[Citation]]:
-        """Score finding against your 50-paper corpus via ChromaDB."""
+        """Score finding against your corpus via embedding similarity."""
         try:
             chunks = self.retriever.retrieve_for_grounding(finding_text, top_k=5)
             if not chunks:
@@ -284,10 +284,7 @@ class GroundingScorer:
         """Convert a coefficient into a searchable finding statement."""
         direction = "increases" if coefficient > 0 else "decreases"
         magnitude = abs(coefficient)
-        return (
-            f"{variable} {direction} {outcome} "
-            f"(coefficient={magnitude:.4f}) in PFAS degradation"
-        )
+        return f"{variable} {direction} {outcome} " f"(coefficient={magnitude:.4f})"
 
     def _build_summary(
         self, finding_scores: list[FindingScore], global_score: float

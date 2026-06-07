@@ -18,6 +18,7 @@ import pandas as pd
 from src.etl.experimental.schema import ExperimentalDataValidator
 from src.etl.experimental.transformer import ExperimentalTransformer
 from src.ingestion.data_loader import ColumnProfile, DataBundle
+from src.ingestion.unified_experimental_sheet import load_excel_bytes_with_layout
 from src.utils.config import get_settings
 from src.utils.exceptions import DataFileNotFoundError, IngestionError
 from src.utils.logging import get_logger
@@ -30,7 +31,7 @@ SUPPORTED_EXTENSIONS = {".csv", ".tsv", ".xlsx", ".xls"}
 
 class ExperimentalETL:
     """
-    Full ETL pipeline for experimental PFAS data.
+    Full ETL pipeline for experimental data.
     Validates, transforms, versions, and returns a DataBundle.
     """
 
@@ -142,14 +143,17 @@ class ExperimentalETL:
             elif path.suffix == ".tsv":
                 df = pd.read_csv(path, sep="\t", low_memory=False)
             elif path.suffix in {".xlsx", ".xls"}:
-                df = pd.read_excel(path)
+                df, _, _ = load_excel_bytes_with_layout(path.read_bytes())
             else:
                 raise IngestionError(f"Unsupported: {path.suffix}")
         except Exception as e:
             raise IngestionError(f"Failed to read {path.name}: {e}") from e
 
-        # Standardize column names immediately
-        df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
+        # Standardize column names immediately (idempotent if loader already normalized)
+        df.columns = [
+            str(c).strip().lower().replace(" ", "_").replace("-", "_")
+            for c in df.columns
+        ]
         return df
 
     def _hash_dataframe(self, df: pd.DataFrame) -> str:
@@ -188,9 +192,20 @@ class ExperimentalETL:
         outcome = self.settings.data.outcome_variable
         exclude = set(exclude_columns or [])
 
-        numeric_cols = df.select_dtypes(include="number").columns.tolist()
-        cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
+        non_unique_cols = [c for c in df.columns if int(df[c].nunique(dropna=True)) > 1]
+        if non_unique_cols:
+            _nu = df[non_unique_cols]
+            cat_cols = [
+                col
+                for col in _nu.select_dtypes(include="object").columns
+                if int(_nu[col].nunique(dropna=True)) <= 5
+            ]
+        else:
+            cat_cols = []
+        cat_col_set = set(cat_cols)
         datetime_cols = df.select_dtypes(include="datetime").columns.tolist()
+
+        numeric_cols = df.select_dtypes(include="number").columns.tolist()
 
         features = feature_columns or [
             c for c in numeric_cols + cat_cols if c not in exclude and c != outcome
@@ -213,7 +228,7 @@ class ExperimentalETL:
                 mean=round(float(series.mean()), 4) if is_numeric else None,
                 std=round(float(series.std()), 4) if is_numeric else None,
                 is_numeric=is_numeric,
-                is_categorical=not is_numeric and not is_datetime,
+                is_categorical=col in cat_col_set,
                 is_datetime=is_datetime,
                 sample_values=series.dropna().unique()[:5].tolist(),
             )

@@ -7,12 +7,15 @@ Uses Redis cache for expensive aggregation queries.
 
 from __future__ import annotations
 
+from typing import cast
+
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select, text
 
 from src.api.deps import CurrentUser, DBSession
+from src.api.tenant import current_user_sub
 from src.db.orm import Citation, Hypothesis, ModelResult, Run, ValidationResult
 from src.db.redis_client import get_db_query, set_db_query
 from src.utils.logging import get_logger
@@ -98,11 +101,17 @@ class ConvergencePoint(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
+async def _get_owned_run(run_id: str, user: CurrentUser, db: DBSession) -> Run:
+    user_sub = current_user_sub(user)
+    run = await db.get(Run, run_id)
+    if not run or run.user_sub != user_sub:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Run {run_id} not found")
+    return cast(Run, run)
+
+
 @router.get("/{run_id}/summary", response_model=RunSummary)
 async def get_summary(run_id: str, user: CurrentUser, db: DBSession) -> RunSummary:
-    run = await db.get(Run, run_id)
-    if not run:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Run {run_id} not found")
+    run = await _get_owned_run(run_id, user, db)
 
     n_hyp_result = await db.execute(
         select(Hypothesis).where(Hypothesis.run_id == run_id)
@@ -130,7 +139,9 @@ async def get_hypotheses(
     round_number: int | None = None,
 ) -> list[HypothesisOut]:
     """List hypotheses for a run. Optionally filter by round."""
-    cache_key = f"{run_id}:hypotheses:{round_number}"
+    user_sub = current_user_sub(user)
+    await _get_owned_run(run_id, user, db)
+    cache_key = f"{user_sub}:{run_id}:hypotheses:{round_number}"
     cached = await get_db_query(cache_key)
     if cached:
         return [HypothesisOut(**h) for h in cached]
@@ -167,6 +178,7 @@ async def get_model_results(
     run_id: str, user: CurrentUser, db: DBSession
 ) -> list[ModelResultOut]:
     """All model results for a run, sorted by R²."""
+    await _get_owned_run(run_id, user, db)
     hyp_ids = (
         (await db.execute(select(Hypothesis.id).where(Hypothesis.run_id == run_id)))
         .scalars()
@@ -207,6 +219,7 @@ async def get_citations(
     run_id: str, user: CurrentUser, db: DBSession
 ) -> list[CitationOut]:
     """All citations for a run, sorted by similarity score."""
+    await _get_owned_run(run_id, user, db)
     hyp_ids = (
         (await db.execute(select(Hypothesis.id).where(Hypothesis.run_id == run_id)))
         .scalars()
@@ -259,6 +272,7 @@ async def get_convergence(
     Reads from mv_run_convergence materialized view if available,
     falls back to live query.
     """
+    await _get_owned_run(run_id, user, db)
     try:
         result = await db.execute(
             text(
@@ -281,8 +295,11 @@ async def get_convergence(
                 )
                 for r in rows
             ]
-    except Exception:
-        pass
+    except Exception as e:
+        # A failed statement aborts the transaction in PostgreSQL; must rollback
+        # before running the fallback queries on the same session.
+        logger.debug("mv_run_convergence read failed, using live query: {}", e)
+        await db.rollback()
 
     # Fallback: live aggregation query
     hyp_ids = (
@@ -331,10 +348,12 @@ async def get_convergence(
 async def download_markdown_report(
     run_id: str,
     user: CurrentUser,
+    db: DBSession,
 ) -> object:
     """Download the Markdown convergence report for a run."""
     from src.utils.paths import REPORTS_DIR
 
+    await _get_owned_run(run_id, user, db)
     path = REPORTS_DIR / f"{run_id}_report.md"
     if not path.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not generated yet")
@@ -349,10 +368,12 @@ async def download_markdown_report(
 async def download_pdf_report(
     run_id: str,
     user: CurrentUser,
+    db: DBSession,
 ) -> object:
     """Download the PDF convergence report for a run."""
     from src.utils.paths import REPORTS_DIR
 
+    await _get_owned_run(run_id, user, db)
     path = REPORTS_DIR / f"{run_id}_report.pdf"
     if not path.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "PDF report not generated yet")

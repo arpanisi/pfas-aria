@@ -143,8 +143,8 @@ class GroundingAgent:
         # Build finding description for search
         finding = self._describe_finding(model_result, significant_variables)
 
-        # Search arXiv
-        logger.debug(f"  Searching arXiv for {hypothesis_id}...")
+        # Search literature via Jina
+        logger.debug(f"  Searching literature for {hypothesis_id}...")
         arxiv_papers = self.arxiv.search_for_finding(
             finding=finding,
             significant_variables=significant_variables[:5],
@@ -191,10 +191,7 @@ class GroundingAgent:
         coeff = model_result.coefficients.get(top_var, 0.0)
         direction = "increases" if coeff > 0 else "decreases"
 
-        return (
-            f"{top_var} {direction} {model_result.outcome_variable} "
-            f"in PFAS photochemical degradation"
-        )
+        return f"{top_var} {direction} {model_result.outcome_variable}"
 
     def _get_domain_context(self) -> str:
         try:
@@ -202,7 +199,7 @@ class GroundingAgent:
 
             return get_settings().domain.context
         except Exception:
-            return "PFAS photochemical degradation"
+            return ""
 
     def _build_structured_results(
         self,

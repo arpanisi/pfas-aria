@@ -47,13 +47,23 @@ async def ensure_indexes() -> None:
     """Create MongoDB indexes on startup."""
     db = get_mongo_db()
 
-    # Chunks: fast lookup by paper_id and chunk_index
-    await db["chunks"].create_index([("paper_id", 1), ("chunk_index", 1)])
-    await db["chunks"].create_index([("content_hash", 1)], unique=True)
+    for coll_name in ("chunks", "papers"):
+        for index_name in ("content_hash_1",):
+            try:
+                await db[coll_name].drop_index(index_name)
+            except Exception:
+                pass
+
+    # Chunks: fast tenant-scoped lookup by paper_id and chunk_index
+    await db["chunks"].create_index([("user_sub", 1), ("paper_id", 1)])
+    await db["chunks"].create_index(
+        [("user_sub", 1), ("paper_id", 1), ("chunk_index", 1)]
+    )
+    await db["chunks"].create_index([("user_sub", 1), ("content_hash", 1)], unique=True)
 
     # Full-text search index on chunk text
     await db["chunks"].create_index([("text", "text")])
 
-    # Papers: lookup by content hash and filename
-    await db["papers"].create_index([("content_hash", 1)], unique=True)
-    await db["papers"].create_index([("filename", 1)])
+    # Papers: tenant-scoped lookup by content hash and filename
+    await db["papers"].create_index([("user_sub", 1), ("content_hash", 1)], unique=True)
+    await db["papers"].create_index([("user_sub", 1), ("filename", 1)])
